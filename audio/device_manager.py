@@ -1,6 +1,7 @@
 # audio/device_manager.py
 """
 Geräte-Management für die ATA Audio-Aufnahme
+Ermittlung verfügbarer Audiogeräte + Überprüfung Verfügbarkeit von der Software Blackhole
 """
 import sounddevice as sd
 

@@ -1,2 +1,4 @@
 # utils/__init__.py
-# Diese Datei macht den utils-Ordner zu einem Python-Modul
+from .logger import Logger
+
+__all__ = ['Logger']

@@ -107,11 +107,19 @@ class DeviceSelectionDialog:
             selected_loopback = self.loopback_devices[loopback_idx][0]
             loopback_name = self.loopback_devices[loopback_idx][1]
             loopback_channels = self.loopback_devices[loopback_idx][2]
+        else:
+            selected_loopback = None
+            loopback_name = ""
+            loopback_channels = settings.DEFAULT_CHANNELS
 
         if mic_idx >= 0 and mic_idx < len(self.microphones):
             selected_microphone = self.microphones[mic_idx][0]
             mic_name = self.microphones[mic_idx][1]
             microphone_channels = self.microphones[mic_idx][2]
+        else:
+            selected_microphone = None
+            mic_name = ""
+            microphone_channels = settings.DEFAULT_CHANNELS
 
         # Ergebnis speichern
         self.result = {
@@ -180,6 +188,11 @@ class HelpDialog:
        - Klicken Sie auf "Start", um die Aufnahme zu beginnen
        - Klicken Sie auf "Stop", um die Aufnahme zu beenden
        - Die Aufnahme wird in "conversation.wav" gespeichert
+
+    4. Sprechererkennung:
+       - Aktivieren Sie "Sprechererkennung" für automatische Speaker Diarization
+       - Nach der Aufnahme werden verschiedene Sprecher erkannt
+       - Die Transkription wird mit Sprecher-Labels versehen
 
     ## Fehlerbehebung
 
