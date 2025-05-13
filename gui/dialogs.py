@@ -48,9 +48,8 @@ class DeviceSelectionDialog:
         self.loopback_combo['values'] = [f"{device[1]} ({device[2]} Kanäle)" for device in loopback_devices]
         self.loopback_combo.grid(column=0, row=1, sticky=(tk.W, tk.E), pady=5)
 
-        # Wähle das erste Loopback-Gerät standardmäßig
-        if loopback_devices:
-            self.loopback_combo.current(0)
+        # Kein Gerät standardmäßig ausgewählt
+        self.loopback_var.set("-- Bitte wählen --")
 
         # Mikrofon
         ttk.Label(frame, text="Mikrofon:").grid(column=0, row=2, sticky=tk.W, pady=5)
@@ -59,9 +58,8 @@ class DeviceSelectionDialog:
         self.mic_combo['values'] = [f"{device[1]} ({device[2]} Kanäle)" for device in microphones]
         self.mic_combo.grid(column=0, row=3, sticky=(tk.W, tk.E), pady=5)
 
-        # Wähle das erste Mikrofon standardmäßig
-        if microphones:
-            self.mic_combo.current(0)
+        # Kein Gerät standardmäßig ausgewählt
+        self.mic_var.set("-- Bitte wählen --")
 
         # Lautstärke-Regler
         ttk.Label(frame, text="System-Lautstärke:").grid(column=0, row=4, sticky=tk.W, pady=5)
@@ -102,6 +100,15 @@ class DeviceSelectionDialog:
         """Speichert die ausgewählten Einstellungen."""
         loopback_idx = self.loopback_combo.current()
         mic_idx = self.mic_combo.current()
+
+        # Prüfung hinzufügen
+        if loopback_idx < 0:
+            messagebox.showwarning("Warnung", "Bitte wählen Sie ein Loopback-Gerät aus!")
+            return
+
+        if mic_idx < 0:
+            messagebox.showwarning("Warnung", "Bitte wählen Sie ein Mikrofon aus!")
+            return
 
         if loopback_idx >= 0 and loopback_idx < len(self.loopback_devices):
             selected_loopback = self.loopback_devices[loopback_idx][0]
@@ -153,66 +160,189 @@ class HelpDialog:
         """Zeigt den Hilfe-Dialog."""
         help_window = tk.Toplevel(self.parent)
         help_window.title("Hilfe - ATA Audio-Aufnahme")
-        help_window.geometry("600x500")
+        help_window.geometry("700x600")
 
-        help_text = scrolledtext.ScrolledText(help_window, wrap=tk.WORD, width=70, height=25)
+        help_text = scrolledtext.ScrolledText(help_window, wrap=tk.WORD, width=90, height=35)
         help_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         instructions = """
-    # ATA Audio-Aufnahme für macOS
+# ATA Audio-Aufnahme für macOS
 
-    ## Voraussetzungen
+## Voraussetzungen
 
-    1. BlackHole Audio-Loopback installiert:
-       - Installation über Homebrew: brew install blackhole-2ch
+1. BlackHole Audio-Loopback installiert:
+   - Installation über Homebrew: brew install blackhole-2ch
 
-    2. Audio-MIDI-Setup konfiguriert:
-       - Multi-Output-Gerät erstellt mit BlackHole und Lautsprechern
-       - Als Standardausgabegerät festgelegt
+2. Audio-MIDI-Setup konfiguriert:
+   - Multi-Output-Gerät erstellt mit BlackHole und Lautsprechern
+   - Als Standardausgabegerät festgelegt
 
-    ## Verwendung
+3. WhisperX-Server läuft:
+   - Entweder lokaler WhisperX-Server oder externer API-Server
+   - Standard-URL: http://141.72.16.242:8500
+   - Prüfbar über Health Check: GET /health
 
-    1. Geräteauswahl:
-       - Klicken Sie auf "Geräteauswahl", um Loopback und Mikrofon festzulegen
-       - BlackHole sollte als Loopback-Gerät ausgewählt werden
-       - Wählen Sie Ihr gewünschtes Mikrofon
-       - Passen Sie die Lautstärke von System und Mikrofon an
-       - Passen Sie bei Audiostörungen die Puffergröße an
+## Verwendung
 
-    2. Test:
-       - Klicken Sie auf "Test", um Testaufnahmen zu machen
-       - Folgen Sie den Anweisungen im Dialog
-       - Die Testdateien werden im gleichen Verzeichnis gespeichert
+1. Geräteauswahl:
+   - Klicken Sie auf "Geräteauswahl", um Loopback und Mikrofon festzulegen
+   - BlackHole sollte als Loopback-Gerät ausgewählt werden
+   - Wählen Sie Ihr gewünschtes Mikrofon
+   - Passen Sie die Lautstärke von System und Mikrofon an
+   - Passen Sie bei Audiostörungen die Puffergröße an
 
-    3. Aufnahme:
-       - Klicken Sie auf "Start", um die Aufnahme zu beginnen
-       - Klicken Sie auf "Stop", um die Aufnahme zu beenden
-       - Die Aufnahme wird in "conversation.wav" gespeichert
+2. WhisperX-Konfiguration:
+   - ✅ WhisperX API: Nutzt externen Server für Transkription
+   - ⬜ WhisperX API: Nutzt lokale Verarbeitung (wenn installiert)
+   - Bei API-Nutzung wird der konfigurierte Server verwendet
+   - Server-Status wird beim Start automatisch geprüft
 
-    4. Sprechererkennung:
-       - Aktivieren Sie "Sprechererkennung" für automatische Speaker Diarization
-       - Nach der Aufnahme werden verschiedene Sprecher erkannt
-       - Die Transkription wird mit Sprecher-Labels versehen
+3. Test:
+   - Klicken Sie auf "Test", um Testaufnahmen zu machen
+   - Folgen Sie den Anweisungen im Dialog
+   - Die Testdateien werden im gleichen Verzeichnis gespeichert
+   - Teste verschiedene Szenarien: nur Audio, nur Mikrofon, beides
 
-    ## Fehlerbehebung
+4. Aufnahme:
+   - Klicken Sie auf "Start", um die Aufnahme zu beginnen
+   - Status zeigt an, welche Methode verwendet wird (WhisperX API/lokal)
+   - Klicken Sie auf "Stop", um die Aufnahme zu beenden
+   - Die Aufnahme wird in "conversation.wav" gespeichert
 
-    - Zu langsame oder flackernde Aufnahme:
-      * Erhöhen Sie die Puffergröße in den Geräteeinstellungen
-      * Versuchen Sie, andere Programme zu schließen
-      * Überprüfen Sie, ob Ihr System ausreichend Ressourcen hat
+5. Sprechererkennung:
+   - ✅ Sprechererkennung: Aktiviert automatische Speaker Diarization
+   - ⬜ Sprechererkennung: Deaktiviert (nur einfache Transkription)
+   - Server-seitige Diarization (empfohlen) oder lokale Verarbeitung
+   - Nach der Aufnahme werden verschiedene Sprecher erkannt
+   - Die Transkription wird mit Sprecher-Labels versehen
+   - Timeline zeigt visuell die Sprecher-Segmente an
 
-    - Kein BlackHole-Gerät gefunden:
-      * Prüfen Sie, ob BlackHole korrekt installiert ist
-      * Überprüfen Sie die Audio-MIDI-Setup-Konfiguration
+## Transkriptions-Verfahren
 
-    - Keine Audioeingabe:
-      * Stellen Sie sicher, dass Ihr System Audio über das Multi-Output-Gerät abspielt
-      * Überprüfen Sie die Mikrofon-Berechtigungen in den Systemeinstellungen
+### WhisperX API-Server (empfohlen):
+- Nutzt externen GPU-Server für schnelle Verarbeitung
+- Server-Status wird automatisch geprüft
+- Unterstützt sowohl Transkription als auch Diarization
+- Automatische Retry-Mechanismen bei Verbindungsproblemen
 
-    - Keine Mikrofon-Aufnahme:
-      * Erhöhen Sie den Mikrofon-Lautstärkeregler in der Geräteauswahl
-      * Prüfen Sie die Mikrofon-Berechtigungen in den macOS-Einstellungen
-    """
+### Lokale Verarbeitung:
+- Nutzt pyannote.audio für Sprechererkennung
+- Erfordert Hugging Face Token in settings.py
+- Langsamer, aber vollständig offline
+
+### Audio-Engine:
+- FFmpeg: Beste Audioqualität (empfohlen)
+- Standard-Processor: Fallback bei FFmpeg-Problemen
+- Automatische Auswahl basierend auf verfügbaren Tools
+
+## Ausgabeformate
+
+1. Timeline-Ansicht:
+   - Visualisiert Sprecher-Segmente über Zeit
+   - Farbkodiert für jeden erkannten Sprecher
+   - Zeigt relative Sprechdauer an
+
+2. Transkription:
+   - Vollständige Transkription ohne Sprecher-Markierung
+   - Sprecher-gebundene Transkription mit Labels
+   - Statistiken über Sprechzeiten und -anteile
+
+3. Audio-Dateien:
+   - conversation.wav: Finale gemischte Aufnahme
+   - test_*.wav: Testaufnahmen zur Verifikation
+
+## Fehlerbehebung
+
+### Audio-Probleme:
+- Zu langsame oder flackernde Aufnahme:
+  * Erhöhen Sie die Puffergröße in den Geräteeinstellungen
+  * Versuchen Sie, andere Programme zu schließen
+  * Überprüfen Sie, ob Ihr System ausreichend Ressourcen hat
+
+- Kein BlackHole-Gerät gefunden:
+  * Prüfen Sie, ob BlackHole korrekt installiert ist
+  * Überprüfen Sie die Audio-MIDI-Setup-Konfiguration
+  * Neustart kann helfen: sudo brew services restart blackhole-2ch
+
+- Keine Audioeingabe:
+  * Stellen Sie sicher, dass Audio über Multi-Output-Gerät abspielt
+  * Überprüfen Sie die Mikrofon-Berechtigungen in Systemeinstellungen
+
+### WhisperX API-Probleme:
+- Server nicht erreichbar:
+  * Prüfen Sie die URL in config/settings.py
+  * Firewall-Einstellungen überprüfen
+  * Bei Timeouts: Erhöhen Sie WHISPERX_TIMEOUT
+
+- Server-Fehler 500/503:
+  * Temporäre Überlastung - warten und wiederholen
+  * Server könnte neu starten - automatische Retry aktiv
+
+- Transkription fehlgeschlagen:
+  * Audio-Datei möglicherweise zu groß/lang
+  * Prüfen Sie Audio-Format (WAV empfohlen)
+  * Bei großen Dateien: Automatisches Chunking aktiviert
+
+### Lokale Verarbeitung:
+- Pyannote.audio Fehler:
+  * Hugging Face Token erforderlich
+  * Modell-Download kann beim ersten Mal dauern
+  * Internetverbindung für Modell-Download nötig
+
+- Speicher-Probleme:
+  * Schließen Sie andere speicherintensive Programme
+  * Bei sehr langen Aufnahmen: Nutzen Sie WhisperX API
+
+## Konfiguration
+
+Erweiterte Einstellungen in config/settings.py:
+
+```python
+# API-Einstellungen
+WHISPERX_API_URL = "http://141.72.16.242:8500/transcribe"
+WHISPERX_TIMEOUT = 120  # Timeout in Sekunden
+WHISPERX_ENABLE_DIARIZATION = True
+
+# Audio-Qualität
+USE_FFMPEG_PROCESSOR = True  # Für beste Qualität
+SAMPLE_RATE = 44100
+BUFFER_SIZE = 4096
+
+# Sprechererkennung
+MAX_SPEAKERS = 3  # Maximale Anzahl erwarteter Sprecher
+```
+
+## Performance-Tipps
+
+1. Für beste Qualität: FFmpeg installieren
+2. Für schnellste Verarbeitung: WhisperX API nutzen
+3. Bei Problemen: Lokalen Fallback aktivieren
+4. Große Aufnahmen: Automatisches Chunking nutzen
+5. Multiple Sprecher: Diarization aktiviert lassen
+
+## Statistiken und Visualisierung
+
+Nach einer Aufnahme mit Sprechererkennung erhalten Sie:
+
+1. Sprecher-Timeline:
+   - Farbkodierte Darstellung aller Sprecher
+   - Zeitstempel für jeden Sprecher-Wechsel
+   - Visuelle Übersicht über Gesprächsverteilung
+
+2. Sprecher-Statistiken:
+   - Sprechzeit pro Person in Sekunden und Prozent
+   - Anzahl der Wortbeiträge pro Sprecher
+   - Beispiel-Transkriptionen pro Sprecher
+
+3. Exportmöglichkeiten:
+   - Volltext-Transkription
+   - Sprecher-gelabelte Transkription
+   - Audio-Export als WAV-Datei
+
+Das System erkennt automatisch 2-3 verschiedene Sprecher und ordnet
+die Transkription entsprechend zu. Bei mehr Sprechern oder schwierigen
+Audiobedingungen kann die Erkennungsgenauigkeit variieren.
+        """
 
         help_text.insert(tk.END, instructions)
         help_text.config(state=tk.DISABLED)

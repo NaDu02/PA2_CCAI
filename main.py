@@ -1,6 +1,6 @@
 # main.py
 """
-Hauptprogramm für die ATA Audio-Aufnahme
+Hauptprogramm für die ATA Audio-Aufnahme mit verbessertem WhisperX API Support
 """
 import os
 import sys
@@ -10,6 +10,7 @@ import sounddevice as sd
 import numpy as np
 import requests
 import traceback
+import json
 
 # Unterdrücken von IMK-Meldungen in macOS
 os.environ['TK_SILENCE_DEPRECATION'] = '1'
@@ -18,11 +19,10 @@ os.environ['TK_SILENCE_DEPRECATION'] = '1'
 from config import settings
 from utils.logger import Logger
 from audio.device_manager import DeviceManager
-# Geänderte Imports für Audio-Processing
 from audio.processor import AudioProcessor
 
 try:
-    from audio.ffmpeg_processor import FFmpegAudioProcessor  # FFmpeg-Processor für bessere Audioqualität
+    from audio.ffmpeg_processor import FFmpegAudioProcessor
 except ImportError:
     FFmpegAudioProcessor = None
 
@@ -39,7 +39,7 @@ class ATAAudioApplication:
     def __init__(self, root):
         self.root = root
         self.root.title(f"{settings.APP_NAME} v{settings.APP_VERSION} (macOS)")
-        self.root.geometry("900x700")
+        self.root.geometry("1300x800")  # Etwas größer für bessere Anzeige
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Instanzvariablen
@@ -67,12 +67,16 @@ class ATAAudioApplication:
         main_frame = tk.Frame(self.root, padx=10, pady=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Statusanzeige
+        # Statusanzeige - verbessertes Layout
         status_frame = tk.Frame(main_frame)
         status_frame.pack(fill=tk.X, pady=(0, 10))
 
         self.status_label = tk.Label(status_frame, text="Status: Initialisierung...", anchor=tk.W)
         self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # API Status Anzeige (neu)
+        self.api_status_label = tk.Label(status_frame, text="", anchor=tk.E, fg="blue")
+        self.api_status_label.pack(side=tk.RIGHT, padx=(10, 0))
 
         self.status_mic_label = tk.Label(status_frame, text="", anchor=tk.E)
         self.status_mic_label.pack(side=tk.RIGHT)
@@ -98,6 +102,10 @@ class ATAAudioApplication:
         self.help_button = tk.Button(button_frame, text="Hilfe", command=self.show_help, width=10)
         self.help_button.pack(side=tk.RIGHT, padx=5)
 
+        # WhisperX API Test Button (neu)
+        self.api_test_button = tk.Button(button_frame, text="API Test", command=self.test_whisperx_api, width=10)
+        self.api_test_button.pack(side=tk.RIGHT, padx=5)
+
         # Diarization Toggle
         self.diarization_var = tk.BooleanVar(value=settings.ENABLE_SPEAKER_DIARIZATION)
         self.diarization_check = tk.Checkbutton(button_frame, text="Sprechererkennung",
@@ -105,7 +113,7 @@ class ATAAudioApplication:
                                                 command=self.toggle_diarization)
         self.diarization_check.pack(side=tk.RIGHT, padx=5)
 
-        # WhisperX API Toggle (verbessert)
+        # WhisperX API Toggle
         if hasattr(settings, 'USE_WHISPERX_API'):
             self.whisperx_api_var = tk.BooleanVar(value=settings.USE_WHISPERX_API)
             self.whisperx_api_check = tk.Checkbutton(button_frame, text="WhisperX API",
@@ -117,7 +125,17 @@ class ATAAudioApplication:
         log_frame = tk.LabelFrame(main_frame, text="Protokoll")
         log_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=80, height=15)
+        self.log_text = scrolledtext.ScrolledText(
+            log_frame,
+            wrap=tk.WORD,
+            width=30,  # Breiter
+            height=1,  # Höher
+            font=('Consolas', 11),  # Monospace-Schrift
+            bg='#1e1e1e',  # Dunkler Hintergrund
+            fg='#d4d4d4',  # Heller Text
+            insertbackground='white',
+            selectbackground='#0078d4'  # Auswahl-Farbe
+        )
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.log_text.config(state=tk.DISABLED)
 
@@ -138,11 +156,86 @@ class ATAAudioApplication:
         # Logger konfigurieren
         self.logger.set_log_text_widget(self.log_text)
 
+    def test_whisperx_api(self):
+        """Testet die WhisperX-API Verbindung"""
+        if self.recording:
+            messagebox.showwarning("Warnung", "Bitte stoppen Sie die Aufnahme vor dem API-Test.")
+            return
+
+        try:
+            self.logger.log_message("Teste WhisperX-API Verbindung...", "INFO")
+
+            # Health Check
+            health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
+            self.logger.log_message(f"Teste Health-Endpoint: {health_url}", "INFO")
+
+            try:
+                response = requests.get(health_url, timeout=10)
+
+                if response.ok:
+                    self.logger.log_message("✅ API Health Check erfolgreich", "SUCCESS")
+                    try:
+                        health_data = response.json()
+                        self.logger.log_message(f"Server Info: {json.dumps(health_data, indent=2)}", "INFO")
+
+                        # API Status anzeigen
+                        device = health_data.get('device', 'unknown')
+                        model_loaded = health_data.get('model_loaded', False)
+                        self.api_status_label.config(
+                            text=f"API: OK ({device}, Modell: {'Ja' if model_loaded else 'Nein'})",
+                            fg="green"
+                        )
+                    except:
+                        self.logger.log_message("Health Response ist kein JSON", "WARNING")
+                        self.api_status_label.config(text="API: OK (Status unbekannt)", fg="orange")
+                else:
+                    self.logger.log_message(f"❌ Health Check fehlgeschlagen: HTTP {response.status_code}", "ERROR")
+                    self.api_status_label.config(text=f"API: Fehler {response.status_code}", fg="red")
+
+            except requests.exceptions.ConnectionError:
+                self.logger.log_message("❌ Verbindung zur API fehlgeschlagen - ist der Server gestartet?", "ERROR")
+                self.api_status_label.config(text="API: Nicht erreichbar", fg="red")
+            except requests.exceptions.Timeout:
+                self.logger.log_message("❌ API Health Check Timeout", "ERROR")
+                self.api_status_label.config(text="API: Timeout", fg="red")
+            except Exception as e:
+                self.logger.log_message(f"❌ API Test Fehler: {e}", "ERROR")
+                self.api_status_label.config(text=f"API: Fehler", fg="red")
+
+            # Zusätzliche API-Informationen
+            self.logger.log_message(f"Konfigurierte API-URL: {settings.WHISPERX_API_URL}", "INFO")
+            self.logger.log_message(f"Sprache: {settings.WHISPERX_LANGUAGE}", "INFO")
+            self.logger.log_message(f"Diarization aktiviert: {settings.WHISPERX_ENABLE_DIARIZATION}", "INFO")
+            self.logger.log_message(f"Compute Type: {settings.WHISPERX_COMPUTE_TYPE}", "INFO")
+
+        except Exception as e:
+            self.logger.log_message(f"Unerwarteter Fehler beim API-Test: {e}", "ERROR")
+            traceback.print_exc()
+
     def toggle_whisperx_api(self):
         """Wechselt zwischen WhisperX API und lokaler Verarbeitung"""
         settings.USE_WHISPERX_API = self.whisperx_api_var.get()
         status = "aktiviert" if settings.USE_WHISPERX_API else "deaktiviert"
         self.logger.log_message(f"WhisperX API {status}", "INFO")
+
+        # Status-Label aktualisieren
+        if settings.USE_WHISPERX_API:
+            # Kurzer API Test
+            self.root.after(100, self.quick_api_check)
+        else:
+            self.api_status_label.config(text="API: Deaktiviert", fg="gray")
+
+    def quick_api_check(self):
+        """Schneller API Check ohne GUI-Blockierung"""
+        try:
+            health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
+            response = requests.get(health_url, timeout=3)
+            if response.ok:
+                self.api_status_label.config(text="API: Verfügbar", fg="green")
+            else:
+                self.api_status_label.config(text=f"API: Fehler {response.status_code}", fg="red")
+        except:
+            self.api_status_label.config(text="API: Nicht erreichbar", fg="red")
 
     def initialize_application(self):
         """Initialisiert die Anwendung."""
@@ -152,7 +245,6 @@ class ATAAudioApplication:
         blackhole_found, device_name = self.device_manager.check_blackhole()
 
         if blackhole_found:
-            # Check BlackHole configuration
             devices = sd.query_devices()
             blackhole_device = None
             for device in devices:
@@ -172,26 +264,12 @@ class ATAAudioApplication:
         else:
             self.logger.log_message("Kein BlackHole-Gerät gefunden.", "ERROR")
             self.logger.log_message("Audio-Setup unvollständig!", "WARNING")
-            self.logger.log_message("Bitte stellen Sie sicher, dass BlackHole installiert und konfiguriert ist.",
-                                    "INFO")
             self.status_label.config(text="Status: Fehler beim Audio-Setup")
 
         # WhisperX-API prüfen, falls aktiviert
         if hasattr(settings, 'USE_WHISPERX_API') and settings.USE_WHISPERX_API:
-            try:
-                # Teste Erreichbarkeit der WhisperX-API
-                import requests
-                health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
-                try:
-                    resp = requests.get(health_url, timeout=5)
-                    if resp.ok:
-                        self.logger.log_message(f"✅ WhisperX-API erreichbar: {settings.WHISPERX_API_URL}", "SUCCESS")
-                    else:
-                        self.logger.log_message(f"⚠️ WhisperX-API antwortet mit Fehler: {resp.status_code}", "WARNING")
-                except requests.RequestException as e:
-                    self.logger.log_message(f"⚠️ WhisperX-API nicht erreichbar: {e}", "WARNING")
-            except ImportError:
-                self.logger.log_message("⚠️ Requests-Modul nicht verfügbar", "WARNING")
+            self.logger.log_message("Prüfe WhisperX-API...", "INFO")
+            self.quick_api_check()
 
         # Geräteauswahl nach kurzer Verzögerung anzeigen
         self.root.after(500, self.show_device_selection)
@@ -220,7 +298,7 @@ class ATAAudioApplication:
             # Einstellungen aktualisieren
             settings.BUFFER_SIZE = self.buffer_size
 
-            # Update Status-Labels mit den ausgewählten Geräten
+            # Status-Labels aktualisieren
             self.status_label.config(text=f"Loopback: {result['loopback_name']} ({result['loopback_channels']} Kanäle)")
             self.status_mic_label.config(
                 text=f"Mikrofon: {result['mic_name']} ({result['microphone_channels']} Kanäle)")
@@ -237,7 +315,7 @@ class ATAAudioApplication:
             return
 
         try:
-            # Stellen Sie sicher, dass Geräte ausgewählt sind
+            # Geräte prüfen
             if self.selected_loopback is None or self.selected_microphone is None:
                 if messagebox.askyesno("Geräteauswahl",
                                        "Keine Audiogeräte ausgewählt. Möchten Sie jetzt Geräte auswählen?"):
@@ -245,17 +323,17 @@ class ATAAudioApplication:
                 else:
                     return
 
-            # Nochmal prüfen, falls Dialog abgebrochen wurde
             if self.selected_loopback is None or self.selected_microphone is None:
                 self.logger.log_message("Keine Audiogeräte ausgewählt - Aufnahme abgebrochen", "ERROR")
                 return
 
-            # WhisperX-Status loggen
-            self.logger.log_message(f"Verwende WhisperX API: {getattr(settings, 'USE_WHISPERX_API', False)}", "INFO")
+            # Status loggen
+            self.logger.log_message(f"Starte Aufnahme mit WhisperX API: {getattr(settings, 'USE_WHISPERX_API', False)}",
+                                    "INFO")
             if hasattr(settings, 'WHISPERX_API_URL'):
                 self.logger.log_message(f"WhisperX-API URL: {settings.WHISPERX_API_URL}", "INFO")
 
-            # Versuche zuerst FFmpeg zu verwenden für bessere Audioqualität
+            # Audio-Processor wählen
             if FFmpegAudioProcessor:
                 try:
                     self.audio_processor = FFmpegAudioProcessor(
@@ -270,7 +348,6 @@ class ATAAudioApplication:
                     self.logger.log_message(f"FFmpeg nicht verfügbar: {e}. Verwende Standard-Processor.", "WARNING")
                     self.audio_processor = None
 
-            # Fallback auf Standard AudioProcessor
             if not self.audio_processor:
                 self.audio_processor = AudioProcessor(
                     system_device=self.selected_loopback,
@@ -294,7 +371,7 @@ class ATAAudioApplication:
             self.start_button.config(state=tk.DISABLED)
             self.stop_button.config(state=tk.NORMAL)
 
-            # Status mit mehr Information
+            # Status mit API-Info
             api_info = ""
             if hasattr(settings, 'USE_WHISPERX_API') and settings.USE_WHISPERX_API:
                 api_info = " (WhisperX API)"
@@ -328,10 +405,6 @@ class ATAAudioApplication:
 
             self.recording = False
 
-            # Garbage Collection erzwingen
-            import gc
-            gc.collect()
-
             # UI aktualisieren
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
@@ -340,59 +413,33 @@ class ATAAudioApplication:
             # Normale Transkription (wenn Diarization deaktiviert)
             if not settings.ENABLE_SPEAKER_DIARIZATION:
                 try:
-                    # Prüfe, welche Transkriptions-Methode verwendet werden soll
+                    self.logger.log_message("Führe Transkription ohne Sprechererkennung durch...", "INFO")
+
+                    # WhisperX API verwenden
                     if hasattr(settings, 'USE_WHISPERX_API') and settings.USE_WHISPERX_API:
-                        # WhisperX-API für Transkription verwenden
-                        self.logger.log_message("Transkribiere mit WhisperX-API...", "INFO")
+                        # Verwende den WhisperXProcessor für Transkription
+                        from audio.whisperx_processor import WhisperXProcessor
+                        processor = WhisperXProcessor(logger=self.logger)
 
-                        with open(settings.FILENAME, "rb") as vf:
-                            files = {"file": (settings.FILENAME, vf, "audio/wav")}
-                            data = {
-                                "language": settings.WHISPERX_LANGUAGE,
-                                "compute_type": settings.WHISPERX_COMPUTE_TYPE,
-                                "enable_diarization": "false"
-                            }
-                            resp = requests.post(settings.WHISPERX_API_URL, files=files, data=data,
-                                                 timeout=settings.WHISPERX_TIMEOUT)
+                        # Temporär Diarization deaktivieren
+                        old_diarization = settings.WHISPERX_ENABLE_DIARIZATION
+                        settings.WHISPERX_ENABLE_DIARIZATION = False
 
-                        if resp.ok:
-                            result = resp.json()
-                            transcription = result.get("transcription", result.get("text", "—"))
+                        result = processor.process_complete_audio(settings.FILENAME)
+
+                        # Diarization-Setting wiederherstellen
+                        settings.WHISPERX_ENABLE_DIARIZATION = old_diarization
+
+                        if result and result.get('full_text'):
+                            transcription = result['full_text']
                             self.logger.log_message("📝 Transkription:\n" + transcription, "INFO")
                             self.transcription_widget.display_transcription({'full_text': transcription})
                         else:
-                            self.logger.log_message(f"WhisperX-API Transkriptions-Fehler: {resp.status_code}", "ERROR")
-
-                    elif hasattr(settings, 'USE_WHISPERX') and settings.USE_WHISPERX:
-                        # WhisperX lokal für Transkription verwenden
-                        import whisperx
-                        self.logger.log_message("Transkribiere mit WhisperX lokal...", "INFO")
-
-                        import torch
-                        device = "cuda" if torch.cuda.is_available() else "cpu"
-                        compute_type = "float16" if device == "cuda" else "int8"
-
-                        model = whisperx.load_model(settings.WHISPERX_MODEL, device, compute_type=compute_type)
-                        audio = whisperx.load_audio(settings.FILENAME)
-                        result = model.transcribe(audio, batch_size=16)
-
-                        transcription = ' '.join([segment['text'] for segment in result['segments']])
-                        self.logger.log_message("📝 Transkription:\n" + transcription, "INFO")
-                        self.transcription_widget.display_transcription({'full_text': transcription})
+                            self.logger.log_message("Keine Transkription erhalten", "WARNING")
 
                     else:
-                        # Standard-API für Transkription verwenden
-                        self.logger.log_message("Transkribiere mit Standard-API...", "INFO")
-
-                        with open(settings.FILENAME, "rb") as vf:
-                            resp = requests.post(settings.API_URL, files={"file": (settings.FILENAME, vf, "audio/wav")})
-
-                        if resp.ok:
-                            transcription = resp.json().get("transcription", "—")
-                            self.logger.log_message("📝 Transkription:\n" + transcription, "INFO")
-                            self.transcription_widget.display_transcription({'full_text': transcription})
-                        else:
-                            self.logger.log_message(f"Standard-API Transkriptions-Fehler: {resp.status_code}", "ERROR")
+                        # Fallback für andere APIs
+                        self.logger.log_message("Keine WhisperX API konfiguriert", "WARNING")
 
                 except Exception as e:
                     self.logger.log_message(f"Transkription nicht möglich: {e}", "WARNING")
@@ -436,7 +483,6 @@ class ATAAudioApplication:
 
         except Exception as e:
             self.logger.log_message(f"Fehler bei Diarization-Anzeige: {e}", "ERROR")
-            import traceback
             traceback.print_exc()
 
     def calculate_speaker_statistics(self, segments):
@@ -525,7 +571,7 @@ if __name__ == "__main__":
         print(f"Python {'.'.join(map(str, settings.REQUIRED_PYTHON_VERSION))} oder höher erforderlich!")
         sys.exit(1)
 
-    # Versuche, sounddevice zu optimieren
+    # sounddevice optimieren
     try:
         sd.default.latency = (settings.DEVICE_TIMEOUT, settings.DEVICE_TIMEOUT)
         sd.default.dtype = 'float32'
