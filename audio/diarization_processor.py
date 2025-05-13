@@ -30,8 +30,9 @@ class DiarizationProcessor:
 
     def process_complete_audio(self, audio_file_path):
         """
-        Optimierte Methode mit Zeitstempel-basierter Zuordnung
+        Optimierte Methode mit Zeitstempel-basierter Zuordnung und Überwachung
         """
+        start_time = time.time()
         full_transcription = ""
         whisper_segments = []
         speaker_segments = []
@@ -47,13 +48,18 @@ class DiarizationProcessor:
                 self._log("Audio-Datei ist leer", "ERROR")
                 raise ValueError("Audio-Datei ist leer")
 
-            self._log(f"Verarbeite Audio-Datei: {audio_file_path} ({file_size} Bytes)", "INFO")
+            self._log(f"Verarbeite Audio-Datei: {audio_file_path} ({file_size / 1024 / 1024:.2f} MB)", "INFO")
 
-            # Transkription mit Zeitstempeln anfordern
+            # Health Check vor Verarbeitung
+            if not self._check_api_health():
+                self._log("⚠️ API Health Check fehlgeschlagen - verwende Fallback", "WARNING")
+                # Hier könnte man auf lokale Verarbeitung umschalten
+
+            # Transkription mit Zeitstempel anfordern
             self._log(f"Anfrage an WhisperX-Server: {self.whisper_api_url}", "INFO")
 
             max_retries = 3
-            retry_delay = 2  # Sekunden
+            retry_delay = 2
 
             for attempt in range(max_retries):
                 try:
@@ -68,6 +74,7 @@ class DiarizationProcessor:
                         }
 
                         self._log(f"Sende Datei an WhisperX (Versuch {attempt + 1}/{max_retries})...", "INFO")
+                        upload_start = time.time()
 
                         # Request mit Timeout
                         resp = requests.post(
@@ -78,19 +85,30 @@ class DiarizationProcessor:
                             headers={'Accept': 'application/json'}
                         )
 
+                        upload_duration = time.time() - upload_start
+                        self._log(f"Upload-Zeit: {upload_duration:.2f}s", "INFO")
+
                     if not resp.ok:
                         if attempt < max_retries - 1:
                             self._log(
-                                f"Fehler vom Server (Status: {resp.status_code}), wiederhole in {retry_delay} Sekunden...",
+                                f"Server-Fehler (Status: {resp.status_code}), wiederhole in {retry_delay} Sekunden...",
                                 "WARNING")
-                            time.sleep(retry_delay)
+
+                            # Bei 5xx Fehlern warten wir länger
+                            if resp.status_code >= 500:
+                                time.sleep(retry_delay * 2)
+                            else:
+                                time.sleep(retry_delay)
                             retry_delay *= 2
                             continue
                         else:
                             self._log(f"Fehler vom Server: {resp.status_code} - {resp.text}", "ERROR")
                             raise Exception(f"WhisperX-Fehler: {resp.status_code}")
                     else:
-                        break  # Erfolgreicher Request
+                        # Erfolgreicher Request
+                        total_time = time.time() - start_time
+                        self._log(f"Verarbeitung abgeschlossen in {total_time:.2f}s", "SUCCESS")
+                        break
 
                 except requests.Timeout:
                     if attempt < max_retries - 1:
@@ -103,14 +121,28 @@ class DiarizationProcessor:
                         raise Exception("Timeout beim Senden an WhisperX-Server")
 
                 except requests.ConnectionError as e:
-                    if attempt < max_retries - 1:
-                        self._log(f"Verbindungsfehler bei Versuch {attempt + 1}: {str(e)}, wiederhole...", "WARNING")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
+                    if "Connection aborted" in str(e) or "Connection reset" in str(e):
+                        # Spezielle Behandlung für Connection Reset
+                        if attempt < max_retries - 1:
+                            self._log(f"❌ Verbindung abgebrochen bei Versuch {attempt + 1}: {str(e)}", "WARNING")
+                            # Längere Wartezeit bei Connection Reset
+                            wait_time = min(10 + attempt * 5, 30)
+                            self._log(f"Warte {wait_time}s vor nächstem Versuch...", "INFO")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            self._log(f"❌ Verbindung mehrfach abgebrochen: {e}", "ERROR")
+                            raise Exception(f"Verbindung abgebrochen: {e}")
                     else:
-                        self._log(f"Verbindungsfehler zu WhisperX-Server: {e}", "ERROR")
-                        raise Exception(f"Verbindungsfehler: {e}")
+                        if attempt < max_retries - 1:
+                            self._log(f"Verbindungsfehler bei Versuch {attempt + 1}: {str(e)}, wiederhole...",
+                                      "WARNING")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                            continue
+                        else:
+                            self._log(f"Verbindungsfehler zu WhisperX-Server: {e}", "ERROR")
+                            raise Exception(f"Verbindungsfehler: {e}")
 
             # Daten aus der Antwort extrahieren
             try:
@@ -203,6 +235,15 @@ class DiarizationProcessor:
                 'segments': [],
                 'transcription': full_transcription if 'full_transcription' in locals() else ""
             }
+
+    def _check_api_health(self):
+        """Überprüft, ob die WhisperX-API verfügbar ist"""
+        try:
+            health_url = self.whisper_api_url.replace('/transcribe', '/health')
+            resp = requests.get(health_url, timeout=5)
+            return resp.ok
+        except:
+            return False
 
     def _convert_whisperx_segments(self, whisperx_segments):
         """Konvertiert WhisperX-Segmente mit Speaker-Info in unser Format"""

@@ -61,3 +61,16 @@ REQUIRED_PACKAGES = {
     'scipy': '1.11.0',
     'matplotlib': '3.7.0'
 }
+
+# Fallback-Einstellungen für API-Ausfälle
+ENABLE_FALLBACK_ON_API_FAILURE = True
+
+# Option 1: Lokale WhisperX als Fallback
+LOCAL_WHISPERX_FALLBACK = True  # Versuche lokale WhisperX bei API-Fehler
+
+# Option 2: OpenAI Whisper als Fallback
+OPENAI_WHISPER_FALLBACK = True  # Als letzter Ausweg
+
+# Option 3: Speichere für späteren Retry
+SAVE_FAILED_JOBS = True
+FAILED_JOBS_DIR = "failed_transcriptions"

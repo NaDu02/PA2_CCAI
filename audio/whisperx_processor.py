@@ -10,6 +10,7 @@ import json
 import traceback
 import os
 import time
+import subprocess
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from config import settings
@@ -21,12 +22,11 @@ class WhisperXProcessor:
         self.session = self._create_session()
 
     def _create_session(self):
-        """Erstellt eine Session mit Retry-Strategie"""
+        """Erstellt eine Session mit urllib3 2.x kompatiblen Einstellungen"""
         session = requests.Session()
 
-        # Retry-Strategie definieren - kompatibel mit verschiedenen urllib3-Versionen
+        # Retry-Strategie (angepasst basierend auf Tests)
         try:
-            # Versuche neuere urllib3-Version (>= 1.26)
             retry_strategy = Retry(
                 total=3,
                 backoff_factor=1,
@@ -34,7 +34,7 @@ class WhisperXProcessor:
                 allowed_methods=["POST"]
             )
         except TypeError:
-            # Fallback für ältere urllib3-Version (< 1.26)
+            # Fallback für ältere urllib3-Version
             retry_strategy = Retry(
                 total=3,
                 backoff_factor=1,
@@ -55,53 +55,83 @@ class WhisperXProcessor:
         else:
             print(f"[{level}] {message}")
 
-    def process_complete_audio(self, audio_file_path):
-        """
-        Verarbeitet Audio-Datei mit WhisperX API
-        """
+    # audio/whisperx_processor.py - Server Health Monitoring
+
+    def _check_server_health(self):
+        """Erweiterte Server-Health-Prüfung"""
+        health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
+
         try:
-            # Prüfe zunächst, ob die Datei existiert und nicht leer ist
+            self._log("Checking server health...", "INFO")
+
+            # Schneller Health Check (5s Timeout)
+            start_time = time.time()
+            resp = self.session.get(health_url, timeout=5)
+            latency = time.time() - start_time
+
+            if resp.ok:
+                try:
+                    health_data = resp.json()
+                    device = health_data.get('device', 'unknown')
+                    self._log(f"Server healthy (device: {device}, latency: {latency:.2f}s)", "SUCCESS")
+
+                    # Warnung bei hoher Latenz
+                    if latency > 1.0:
+                        self._log(f"High server latency detected: {latency:.2f}s", "WARNING")
+
+                    return True
+                except:
+                    # Auch OK, wenn JSON nicht parsebar ist
+                    self._log("Server responds but health format unexpected", "WARNING")
+                    return True
+            else:
+                self._log(f"Server health check failed: {resp.status_code}", "WARNING")
+                return False
+
+        except requests.exceptions.Timeout:
+            self._log("Server health check timed out", "WARNING")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            self._log(f"Cannot connect to server: {e}", "ERROR")
+            return False
+        except Exception as e:
+            self._log(f"Health check failed: {e}", "ERROR")
+            return False
+
+    def process_complete_audio(self, audio_file_path):
+        """Hauptmethode mit Health-Check"""
+        try:
+            # Prüfe Datei
             if not os.path.exists(audio_file_path):
-                self._log(f"Audio-Datei nicht gefunden: {audio_file_path}", "ERROR")
-                raise FileNotFoundError(f"Audio-Datei nicht gefunden: {audio_file_path}")
+                raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
             file_size = os.path.getsize(audio_file_path)
             if file_size == 0:
-                self._log("Audio-Datei ist leer", "ERROR")
-                raise ValueError("Audio-Datei ist leer")
+                raise ValueError("Audio file is empty")
 
-            # Prüfe Dateigröße (WhisperX hat möglicherweise Limits)
-            max_size_mb = 50  # 50MB Limit
-            if file_size > max_size_mb * 1024 * 1024:
-                self._log(f"Audio-Datei zu groß ({file_size / 1024 / 1024:.1f}MB). Maximum: {max_size_mb}MB", "WARNING")
-                # Komprimiere oder teile die Datei auf
-                audio_file_path = self._compress_audio(audio_file_path)
-                file_size = os.path.getsize(audio_file_path)
+            self._log(f"Processing audio file: {file_size / 1024 / 1024:.2f} MB", "INFO")
 
-            self._log(f"Verarbeite Audio-Datei: {audio_file_path} ({file_size / 1024 / 1024:.2f} MB)", "INFO")
+            # Health Check vor Verarbeitung
+            if not self._check_server_health():
+                # Warte kurz und versuche erneut
+                self._log("Server not healthy, waiting 5s and retrying...", "INFO")
+                time.sleep(5)
 
-            # Health Check der API
-            if not self._check_api_health():
-                self._log("WhisperX-API Health Check fehlgeschlagen", "WARNING")
+                if not self._check_server_health():
+                    # Gehe trotzdem weiter, aber mit veränderten Timeouts
+                    self._log("Server still not responding to health checks, proceeding with caution", "WARNING")
+                    settings.WHISPERX_TIMEOUT *= 2  # Verdopple Timeout
 
-            # Transkription mit WhisperX anfordern
-            self._log(f"Sende Anfrage an WhisperX-Server: {settings.WHISPERX_API_URL}", "INFO")
-
-            # Verwende streaming upload für große Dateien
-            if file_size > 10 * 1024 * 1024:  # Größer als 10MB
-                return self._process_large_file(audio_file_path)
-            else:
-                return self._process_standard_file(audio_file_path)
+            # Verarbeitung durchführen
+            return self._process_standard_file(audio_file_path)
 
         except Exception as e:
-            self._log(f"Fehler in process_complete_audio: {str(e)}", "ERROR")
-            traceback.print_exc()
-            # Fallback: Rückgabe nur mit Fehlermeldung
+            self._log(f"Error in process_complete_audio: {str(e)}", "ERROR")
             return {
                 'full_text': "",
                 'labeled_text': "",
                 'segments': [],
-                'transcription': f"Fehler bei der Verarbeitung: {str(e)}"
+                'transcription': f"Error: {str(e)}"
             }
 
     def _check_api_health(self):
@@ -113,12 +143,55 @@ class WhisperXProcessor:
         except:
             return False
 
-    def _compress_audio(self, audio_file_path):
-        """Komprimiert Audio-Datei falls zu groß"""
+    def _compress_audio(self, audio_file_path, target_size_mb=5):
+        """Komprimiert Audio-Datei auf Zielgröße"""
         try:
-            self._log("Komprimiere Audio-Datei...", "INFO")
+            self._log("Komprimiere Audio-Datei für API-Upload...", "INFO")
 
-            # Lade Audio und konvertiere zu niedriger Qualität
+            # Lade Audio und analysiere
+            audio, sr = sf.read(audio_file_path)
+            duration = len(audio) / sr
+
+            # Berechne Ziel-Bitrate basierend auf gewünschter Dateigröße
+            target_size_bytes = target_size_mb * 1024 * 1024
+            target_bitrate = int((target_size_bytes * 8) / duration) // 1000  # kbps
+            target_bitrate = max(32, min(target_bitrate, 128))  # Zwischen 32-128 kbps
+
+            self._log(f"Ziel-Bitrate: {target_bitrate} kbps", "INFO")
+
+            # Verwende FFmpeg für effiziente Komprimierung
+            compressed_path = audio_file_path.replace('.wav', '_compressed.wav')
+
+            # FFmpeg-Befehl für optimale Komprimierung
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',  # Überschreiben ohne Nachfrage
+                '-i', audio_file_path,
+                '-ar', '16000',  # Sample rate auf 16kHz reduzieren
+                '-ac', '1',  # Mono (falls Stereo)
+                '-b:a', f'{target_bitrate}k',  # Bitrate
+                '-f', 'wav',
+                compressed_path
+            ]
+
+            try:
+                subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+                final_size = os.path.getsize(compressed_path)
+                self._log(f"Komprimierung erfolgreich: {final_size / 1024 / 1024:.2f} MB", "SUCCESS")
+                return compressed_path
+            except subprocess.CalledProcessError:
+                # Fallback ohne FFmpeg
+                return self._fallback_compression(audio_file_path, target_size_mb)
+
+        except Exception as e:
+            self._log(f"Fehler bei Audio-Komprimierung: {e}", "WARNING")
+            return audio_file_path
+
+    def _fallback_compression(self, audio_file_path, target_size_mb):
+        """Fallback-Komprimierung ohne FFmpeg"""
+        try:
+            self._log("Verwende Fallback-Komprimierung...", "INFO")
+
+            # Lade Audio und konvertiere
             audio, sr = sf.read(audio_file_path)
 
             # Reduziere Sample Rate falls nötig
@@ -131,26 +204,45 @@ class WhisperXProcessor:
             if len(audio.shape) > 1:
                 audio = np.mean(audio, axis=1)
 
+            # Reduziere Bit-Tiefe auf 16-bit integer für kleinere Dateien
+            audio = (audio * 32767).astype(np.int16)
+
             # Speichere komprimierte Version
             compressed_path = audio_file_path.replace('.wav', '_compressed.wav')
-            sf.write(compressed_path, audio, sr)
+            sf.write(compressed_path, audio, sr, subtype='PCM_16')
 
-            self._log(f"Audio komprimiert: {os.path.getsize(compressed_path) / 1024 / 1024:.2f} MB", "INFO")
+            final_size = os.path.getsize(compressed_path)
+            self._log(f"Fallback-Komprimierung: {final_size / 1024 / 1024:.2f} MB", "INFO")
             return compressed_path
 
         except Exception as e:
-            self._log(f"Fehler bei Audio-Komprimierung: {e}", "WARNING")
+            self._log(f"Fehler bei Fallback-Komprimierung: {e}", "ERROR")
             return audio_file_path
 
+    # audio/whisperx_processor.py - Verbesserte Retry-Logik
+
     def _process_standard_file(self, audio_file_path):
-        """Verarbeitet Standard-Dateien"""
+        """Verarbeitet Standard-Dateien mit robuster Fehlerbehandlung"""
         max_retries = 3
-        retry_delay = 2
+        base_delay = 2
+        backoff_factor = 2.0
+        max_delay = 30
+
+        # Berechne Timeout basierend auf Dateigröße (30s per MB, mindestens 60s)
+        file_size_mb = os.path.getsize(audio_file_path) / (1024 * 1024)
+        timeout = max(60, int(30 + file_size_mb * 30))
+
+        self._log(f"Processing file: {file_size_mb:.2f} MB, Timeout: {timeout}s", "INFO")
 
         for attempt in range(max_retries):
+            # Berechne Retry-Delay mit exponential backoff
+            if attempt > 0:
+                delay = min(base_delay * (backoff_factor ** (attempt - 1)), max_delay)
+                self._log(f"Waiting {delay}s before retry {attempt + 1}...", "INFO")
+                time.sleep(delay)
+
             try:
                 with open(audio_file_path, "rb") as vf:
-                    # WhisperX-API Parameter
                     files = {"file": (os.path.basename(audio_file_path), vf, "audio/wav")}
                     data = {
                         "language": settings.WHISPERX_LANGUAGE,
@@ -160,59 +252,73 @@ class WhisperXProcessor:
                         "return_word_timestamps": "true"
                     }
 
-                    self._log(f"Sende Datei an WhisperX (Versuch {attempt + 1}/{max_retries})...", "INFO")
+                    self._log(f"Sending file (attempt {attempt + 1}/{max_retries})...", "INFO")
 
-                    # Request mit erweiterten Timeouts
+                    # Session für jeden Versuch neu erstellen, falls vorheriger fehlgeschlagen
+                    if attempt > 0:
+                        self.session = self._create_session()
+
+                    # Request mit progressiven Timeouts
+                    current_timeout = timeout + (attempt * 30)  # Erhöhe Timeout bei Retries
+
                     resp = self.session.post(
                         settings.WHISPERX_API_URL,
                         files=files,
                         data=data,
-                        timeout=(30, 300),  # (Connect Timeout, Read Timeout)
-                        stream=False
+                        timeout=(30, current_timeout),  # Connect-Timeout bleibt konstant
+                        stream=False,
+                        headers={
+                            'Connection': 'keep-alive',
+                            'User-Agent': 'ATA-AudioApp/1.0'
+                        }
                     )
 
-                if not resp.ok:
-                    if attempt < max_retries - 1:
-                        self._log(
-                            f"Fehler vom Server (Status: {resp.status_code}), wiederhole in {retry_delay} Sekunden...",
-                            "WARNING")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
-                    else:
-                        self._log(f"Fehler vom Server: {resp.status_code} - {resp.text[:200]}", "ERROR")
-                        raise Exception(f"WhisperX-Fehler: {resp.status_code}")
-                else:
-                    # Erfolgreicher Request
+                # Erfolgreiche Antwort verarbeiten
+                if resp.ok:
+                    self._log(f"Successfully received response from server", "SUCCESS")
                     return self._parse_response(resp)
 
+                # Server-Fehler behandeln
+                if resp.status_code >= 500:
+                    # Server-Fehler: Retry lohnt sich
+                    self._log(f"Server error {resp.status_code}, will retry", "WARNING")
+                    continue
+                elif resp.status_code >= 400:
+                    # Client-Fehler: Wahrscheinlich kein Retry nötig
+                    error_msg = resp.text[:200] if resp.text else "Unknown error"
+                    self._log(f"Client error {resp.status_code}: {error_msg}", "ERROR")
+                    raise Exception(f"Client error {resp.status_code}: {error_msg}")
+
             except requests.exceptions.ConnectionError as e:
-                if "RemoteDisconnected" in str(e):
-                    self._log(f"Server hat Verbindung abgebrochen bei Versuch {attempt + 1}", "WARNING")
-                    # Erhöhe Retry-Delay für Connection-Abbrüche
-                    time.sleep(retry_delay * 2)
-                    retry_delay *= 2
+                error_str = str(e)
+                if "Connection aborted" in error_str or "Connection reset" in error_str:
+                    self._log(f"Connection reset on attempt {attempt + 1} (server may have restarted)", "WARNING")
+                    # Bei Connection Reset besonders lange warten
                     if attempt < max_retries - 1:
-                        continue
-                raise Exception(f"Verbindung zum Server abgebrochen: {e}")
+                        extra_delay = 15  # Extra 15 Sekunden bei Connection Reset
+                        self._log(f"Server may be restarting, waiting extra {extra_delay}s...", "INFO")
+                        time.sleep(extra_delay)
+                    continue
+                else:
+                    self._log(f"Connection error: {error_str}", "ERROR")
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Connection failed after {max_retries} attempts: {e}")
+                    continue
 
             except requests.exceptions.Timeout as e:
-                if attempt < max_retries - 1:
-                    self._log(f"Timeout bei Versuch {attempt + 1}, wiederhole...", "WARNING")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                    continue
-                else:
-                    raise Exception(f"Timeout nach {max_retries} Versuchen: {e}")
+                self._log(f"Timeout after {current_timeout}s on attempt {attempt + 1}", "WARNING")
+                if attempt == max_retries - 1:
+                    raise Exception(f"Timeout after {max_retries} attempts (last timeout: {current_timeout}s)")
+                continue
 
             except Exception as e:
-                if attempt < max_retries - 1:
-                    self._log(f"Unbekannter Fehler bei Versuch {attempt + 1}: {str(e)}, wiederhole...", "WARNING")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                    continue
-                else:
-                    raise
+                self._log(f"Unexpected error on attempt {attempt + 1}: {str(e)}", "WARNING")
+                if attempt == max_retries - 1:
+                    raise Exception(f"Failed after {max_retries} attempts: {str(e)}")
+                continue
+
+        # Sollte nicht erreicht werden
+        raise Exception(f"Failed to process file after {max_retries} attempts")
 
     def _process_large_file(self, audio_file_path):
         """Verarbeitet große Dateien mit Chunking"""
