@@ -1,4 +1,4 @@
-# audio/__init__.py
+# audio/__init__.py - AKTUALISIERT
 # Basis-Importe die immer verfügbar sind
 from .device_manager import DeviceManager
 from .simple_speaker_diarization import SimpleSpeakerDiarizer
@@ -19,6 +19,13 @@ try:
 except ImportError:
     WhisperXProcessor = None
 
+# NEU: Summarization Client
+try:
+    from .summarization_client import SummarizationClient, summarization_client
+except ImportError:
+    SummarizationClient = None
+    summarization_client = None
+
 __all__ = [
     'DeviceManager',
     'SimpleSpeakerDiarizer'
@@ -31,3 +38,5 @@ if DiarizationProcessor:
     __all__.append('DiarizationProcessor')
 if WhisperXProcessor:
     __all__.append('WhisperXProcessor')
+if SummarizationClient:
+    __all__.extend(['SummarizationClient', 'summarization_client'])

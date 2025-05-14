@@ -4,6 +4,7 @@ Hauptprogramm für die ATA Audio-Aufnahme mit verbessertem WhisperX API Support
 """
 import os
 import sys
+import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
 import sounddevice as sd
@@ -20,6 +21,9 @@ from config import settings
 from utils.logger import Logger
 from audio.device_manager import DeviceManager
 from audio.processor import AudioProcessor
+from audio.summarization_client import summarization_client
+from gui.summary_widget import SummaryWidget
+
 
 try:
     from audio.ffmpeg_processor import FFmpegAudioProcessor
@@ -45,6 +49,8 @@ class ATAAudioApplication:
         # Instanzvariablen
         self.logger = Logger()
         self.device_manager = DeviceManager(self.logger)
+        self.summarization_client = summarization_client
+        self.summarization_client.logger = self.logger
         self.test_recorder = TestRecording(self.device_manager, self.logger)
         self.audio_processor = None
         self.recording = False
@@ -113,6 +119,13 @@ class ATAAudioApplication:
                                                 command=self.toggle_diarization)
         self.diarization_check.pack(side=tk.RIGHT, padx=5)
 
+        # SUMMARIZATION TOGGLE BUTTON
+        self.summarization_var = tk.BooleanVar(value=True)  # Standardmäßig aktiviert
+        self.summarization_check = tk.Checkbutton(button_frame, text="Zusammenfassung",
+                                                  variable=self.summarization_var,
+                                                  command=self.toggle_summarization)
+        self.summarization_check.pack(side=tk.RIGHT, padx=5)
+
         # WhisperX API Toggle
         if hasattr(settings, 'USE_WHISPERX_API'):
             self.whisperx_api_var = tk.BooleanVar(value=settings.USE_WHISPERX_API)
@@ -129,7 +142,7 @@ class ATAAudioApplication:
             log_frame,
             wrap=tk.WORD,
             width=30,  # Breiter
-            height=1,  # Höher
+            height=3,  # Höher
             font=('Consolas', 11),  # Monospace-Schrift
             bg='#1e1e1e',  # Dunkler Hintergrund
             fg='#d4d4d4',  # Heller Text
@@ -143,15 +156,23 @@ class ATAAudioApplication:
         self.speaker_frame = tk.LabelFrame(main_frame, text="Sprecher-Timeline")
         self.speaker_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.speaker_timeline = SpeakerTimelineWidget(self.speaker_frame)
-        self.speaker_timeline.pack(fill=tk.X, padx=5, pady=5)
+        # Kleinere Timeline mit fester Höhe
+        self.speaker_timeline = SpeakerTimelineWidget(self.speaker_frame, height=40)  # Verkleinert von 100 auf 60
+        self.speaker_timeline.pack(fill=tk.X, padx=5, pady=2)  # Weniger Padding
 
         # Transkription mit Sprechern
         self.transcription_frame = tk.LabelFrame(main_frame, text="Transkription")
-        self.transcription_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        self.transcription_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))  # Weniger Abstand oben
 
         self.transcription_widget = TranscriptionWidget(self.transcription_frame)
         self.transcription_widget.pack(fill=tk.BOTH, expand=True)
+
+        # Summary Widget hinzufügen
+        self.summary_frame = tk.LabelFrame(main_frame, text="📋 Zusammenfassung")
+        self.summary_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
+
+        self.summary_widget = SummaryWidget(self.summary_frame)
+        self.summary_widget.pack(fill=tk.BOTH, expand=True)
 
         # Logger konfigurieren
         self.logger.set_log_text_widget(self.log_text)
@@ -280,6 +301,18 @@ class ATAAudioApplication:
         status = "aktiviert" if settings.ENABLE_SPEAKER_DIARIZATION else "deaktiviert"
         self.logger.log_message(f"Sprechererkennung {status}", "INFO")
 
+    def toggle_summarization(self):
+        """Aktiviert/Deaktiviert die Zusammenfassung"""
+        # Prüfe Service-Status beim Aktivieren
+        if self.summarization_var.get():
+            if not self.summarization_client.check_service_health():
+                self.summarization_var.set(False)
+                messagebox.showwarning("Warnung", "Summarization Service ist nicht verfügbar!")
+                return
+            self.logger.log_message("Zusammenfassung aktiviert", "INFO")
+        else:
+            self.logger.log_message("Zusammenfassung deaktiviert", "INFO")
+
     def show_device_selection(self):
         """Zeigt den Geräteauswahl-Dialog."""
         dialog = DeviceSelectionDialog(self.root, self.device_manager, self.logger)
@@ -385,6 +418,7 @@ class ATAAudioApplication:
             # Timeline und Transkription leeren
             self.speaker_timeline.canvas.delete("all")
             self.transcription_widget.text.delete(1.0, tk.END)
+            self.summary_widget.clear()
 
         except Exception as e:
             self.logger.log_message(f"Fehler beim Starten der Aufnahme: {e}", "ERROR")
@@ -475,6 +509,11 @@ class ATAAudioApplication:
             # Transkription anzeigen
             self.transcription_widget.display_transcription(result)
 
+            # Summarization durchführen
+            if result and (result.get('segments') or result.get('full_text')):
+                self.logger.log_message("Starte Zusammenfassung...", "INFO")
+                threading.Thread(target=self._perform_summarization, args=(result,), daemon=True).start()
+
             # Log die Transkription auch
             if 'transcription' in result:
                 self.logger.log_message("📝 Transkription:\n" + result['transcription'], "INFO")
@@ -483,6 +522,46 @@ class ATAAudioApplication:
 
         except Exception as e:
             self.logger.log_message(f"Fehler bei Diarization-Anzeige: {e}", "ERROR")
+            traceback.print_exc()
+
+    def _perform_summarization(self, transcript_result):
+        """Führt die Zusammenfassung in einem separaten Thread durch"""
+        try:
+            # Prüfe erst, ob Service verfügbar ist
+            if not self.summarization_client.check_service_health():
+                self.logger.log_message("Summarization Service nicht verfügbar", "WARNING")
+                return
+
+            # Führe Zusammenfassung durch
+            summary_result = self.summarization_client.summarize_conversation(transcript_result)
+
+            if summary_result:
+                # GUI im Hauptthread aktualisieren
+                self.root.after(0, self._display_summary, summary_result)
+            else:
+                self.logger.log_message("Keine Zusammenfassung erhalten", "WARNING")
+
+        except Exception as e:
+            self.logger.log_message(f"Fehler bei Zusammenfassung: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()
+
+    def _display_summary(self, summary_result):
+        """Zeigt die Zusammenfassung in der GUI an (läuft im Hauptthread)"""
+        try:
+            self.summary_widget.display_summary(summary_result)
+
+            # Statistiken loggen
+            if summary_result.get('todos'):
+                todo_count = len(summary_result['todos'])
+                self.logger.log_message(f"Zusammenfassung erstellt: {todo_count} Aufgaben gefunden", "SUCCESS")
+
+            sentiment = summary_result.get('sentiment', 'neutral')
+            self.logger.log_message(f"Gesprächsstimmung: {sentiment}", "INFO")
+
+        except Exception as e:
+            self.logger.log_message(f"Fehler bei Anzeige der Zusammenfassung: {e}", "ERROR")
+            import traceback
             traceback.print_exc()
 
     def calculate_speaker_statistics(self, segments):
