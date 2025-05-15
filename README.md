@@ -1,238 +1,262 @@
-# ATA Audio-Aufnahme
+# 🧠 ATA Audio-Aufnahme
 
-Eine fortschrittliche macOS-Anwendung für hochqualitative Audio-Aufnahme mit intelligenter Sprechererkennung, KI-basierter Transkription und automatischer Gesprächszusammenfassung.
+Eine hochentwickelte macOS-Anwendung für parallele System- und Mikrofon-Audioaufnahme mit KI-basierter Sprechererkennung, automatischer Transkription und intelligenter Gesprächsanalyse.
 
 ## 🚀 Features
 
-- **🎙️ Hochqualitative Audio-Aufnahme** mit BlackHole Loopback (System + Mikrofon)
-- **🗣️ Speaker Diarization** (Sprechererkennung und -zuordnung)
-- **📝 WhisperX-basierte Transkription** über API oder lokal
-- **🤖 Intelligente Zusammenfassung** mit Large Language Models
-- **📊 Visuelle Timeline** der Sprecher-Segmente
-- **⚙️ FFmpeg-Integration** für beste Audioqualität
+- 🎙️ **Hochqualitative Audioaufnahme** (System + Mikrofon via BlackHole)
+- 🗣️ **Automatische Sprechererkennung** (Speaker Diarization)
+- 📝 **WhisperX-basierte Transkription** mit Zeitstempeln
+- 🤖 **KI-Zusammenfassung** durch Large Language Models (Ollama)
+- 🌐 **Remote Docker-Services** über DHBW-Server
+- 📊 **Visuelle Timeline** der Gesprächssegmente
+- ⚙️ **FFmpeg-Integration** für beste Audioqualität
 
 ## 📋 Voraussetzungen
 
-### System
 - **macOS** (Intel oder Apple Silicon)
-- **Python 3.8+** (empfohlen: 3.9-3.12)
-- **BlackHole Audio Driver**
-- **FFmpeg** (optional, für beste Qualität)
-- **Docker & Docker Desktop**
+- **Python 3.8+** (empfohlen: 3.9–3.12)
+- **VPN-Verbindung zur DHBW Mannheim** (für Docker-Services)
+- **Homebrew** (wird automatisch installiert, falls nicht vorhanden)
 
-## 🔧 Installation
+## 🔄 Installation
 
 ### 1. Repository klonen
 ```bash
-git clone <repository-url>
+git clone https://github.com/DEIN_REPO/ata-audio-aufnahme.git
 cd ata-audio-aufnahme
 ```
 
-### 2. BlackHole installieren und konfigurieren
+### 2. DHBW VPN-Verbindung herstellen
 
-#### BlackHole Installation:
+**⚠️ WICHTIG: Ohne VPN-Verbindung zur DHBW können die Docker-Services nicht erreicht werden!**
+
+1. Verbinden Sie sich mit dem DHBW VPN
+2. Die Services laufen auf dem Server: `141.72.16.242`
+
+### 3. Automatische Installation und Start
+
 ```bash
-brew install blackhole-2ch
-```
-
-#### Audio-MIDI-Setup konfigurieren:
-1. Öffnen Sie **Audio-MIDI-Setup** (`/Applications/Utilities/Audio MIDI Setup.app`)
-2. Erstellen Sie ein **Aggregat-Gerät**:
-   - Wählen Sie Ihre Lautsprecher/Kopfhörer
-   - Fügen Sie **BlackHole 2ch** hinzu
-3. Erstellen Sie ein **Multi-Output-Gerät**:
-   - Wählen Sie Ihre Lautsprecher/Kopfhörer 
-   - Fügen Sie **BlackHole 2ch** hinzu
-4. Setzen Sie das Multi-Output-Gerät als **Standard-Audioausgang** in den Systemeinstellungen
-
-### 3. Python-Dependencies installieren
-
-#### Virtual Environment erstellen (empfohlen):
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-#### Dependencies installieren:
-```bash
-pip install -r requirements.txt
-```
-
-### 4. FFmpeg installieren (optional, aber empfohlen):
-```bash
-brew install ffmpeg
-```
-
-### 5. Docker Container starten
-
-Die Anwendung benötigt drei Docker Container:
-
-#### WhisperX API (für Transkription):
-```bash
-docker run -d \
-  --name whisperx-api \
-  -p 8500:8500 \
-  whisperx-api:cuda129
-```
-
-#### Summarization Service:
-```bash
-docker run -d \
-  --name summarization-api \
-  -p 8501:8501 \
-  zf-summarization-api:latest
-```
-
-#### Ollama LLM (für Zusammenfassungen):
-```bash
-docker run -d \
-  --name ollama \
-  -p 11434:11434 \
-  ollama/ollama:latest
-```
-
-## ⚙️ Konfiguration
-
-### API-URLs anpassen
-
-Bearbeiten Sie `config/settings.py` um die Docker-Container-IPs zu konfigurieren:
-
-```python
-# WhisperX API
-WHISPERX_API_URL = "http://IHRE_DOCKER_HOST_IP:8500/transcribe"
-
-# Für lokale Docker-Installation meist:
-WHISPERX_API_URL = "http://localhost:8500/transcribe"
-
-# Oder für Remote-Server:
-WHISPERX_API_URL = "http://141.72.16.242:8500/transcribe"
-```
-
-### Weitere Konfigurationsoptionen:
-
-```python
-# Sprache für Transkription
-WHISPERX_LANGUAGE = "de"  # Deutsch
-
-# Aktivierung der Sprechererkennung
-ENABLE_SPEAKER_DIARIZATION = True
-
-# Timeout für API-Calls
-WHISPERX_TIMEOUT = 120  # Sekunden
-
-# Audio-Qualität
-SAMPLE_RATE = 44100
-BUFFER_SIZE = 4096
-```
-
-## 🚀 Anwendung starten
-
-### Mit Startup-Check:
-```bash
-python startup.py
-```
-
-### Direkt:
-```bash
-python main.py
-```
-
-### Mit Shell-Script:
-```bash
+# Einfacher Start mit automatischer Installation
 ./start.sh
 ```
 
-## 📚 Verwendung
+Das `start.sh` Skript führt automatisch folgende Schritte durch:
+- **Überprüft System-Dependencies**
+- **Fragt vor Installation** ob fehlende Komponenten installiert werden sollen:
+  - Homebrew (falls nicht vorhanden)
+  - Python 3.11+ (falls nicht vorhanden)
+  - BlackHole Audio Driver
+  - FFmpeg (für beste Audioqualität)
+- **Erstellt/aktiviert Virtual Environment**
+- **Installiert Python-Dependencies**
+- **Startet die Anwendung**
 
-### 1. Erste Schritte
-1. **Geräteauswahl**: Klicken Sie auf "Geräteauswahl" und wählen Sie:
-   - **Loopback-Gerät**: BlackHole 2ch
-   - **Mikrofon**: Ihr gewünschtes Mikrofon
-   - Passen Sie die Lautstärke an
+### 4. BlackHole konfigurieren (bei Erstinstallation)
 
-2. **API-Test**: Klicken Sie auf "API Test" um die WhisperX-Verbindung zu prüfen
+Wenn BlackHole neu installiert wurde, muss es konfiguriert werden:
 
-### 2. Aufnahme durchführen
-1. **Start**: Beginnen Sie die Aufnahme mit dem "Start"-Button
-2. **Audio abspielen**: System-Audio (YouTube, Musik, etc.) wird automatisch aufgenommen
-3. **Ins Mikrofon sprechen**: Ihre Stimme wird parallel aufgenommen
-4. **Stop**: Beenden Sie mit "Stop"
+#### Audio-MIDI-Setup konfigurieren:
 
-### 3. Ergebnisse
-Nach der Aufnahme erhalten Sie:
-- **Visuelle Timeline** der Sprecher-Segmente
-- **Transkription** mit Sprecher-Labels
-- **Automatische Zusammenfassung** mit To-Dos und Insights
+1. **Öffnen Sie Audio-MIDI-Setup:**
+   - Pfad: `/Programme/Dienstprogramme/Audio-MIDI-Setup.app`
+   - Oder: `cmd + space` → "Audio MIDI" suchen
 
-## 🛠️ Fehlerbehebung
+2. **Erstellen Sie ein Aggregat-Gerät:**
+   - Klicken Sie auf das `+` Symbol unten links
+   - Wählen Sie "Aggregat-Gerät erstellen"
+   - **Aktivieren Sie:**
+     - Ihr Mikrofon (z.B. "MacBook Pro Mikrofon")
+     - BlackHole 2ch
+   - Benennen Sie es z.B. "BlackHole + Mikrofon"
 
-### BlackHole-Probleme
-- **Kein BlackHole gefunden**: Neuinstallation mit `brew reinstall blackhole-2ch`
-- **Kein System-Audio**: Prüfen Sie das Multi-Output-Gerät Setup
-- **Audio-Probleme**: Starten Sie Core Audio neu: `sudo killall coreaudiod`
+3. **Erstellen Sie ein Multi-Output-Gerät:**
+   - Klicken Sie erneut auf `+`
+   - Wählen Sie "Multi-Output-Gerät erstellen"
+   - **Aktivieren Sie:**
+     - Ihre Lautsprecher/Kopfhörer
+     - BlackHole 2ch
+   - Benennen Sie es z.B. "Lautsprecher + BlackHole"
 
-### Docker-Container-Probleme
-- **Container prüfen**: `docker ps`
-- **Logs einsehen**: `docker logs whisperx-api`
-- **Container neu starten**: `docker restart whisperx-api`
+4. **Setzen Sie das Multi-Output-Gerät als Standard:**
+   - Gehen Sie zu: Systemeinstellungen → Ton → Ausgabe
+   - Wählen Sie Ihr Multi-Output-Gerät als Standardausgabe
 
-### API-Verbindungsprobleme
-- **Health Check**: Verwenden Sie den integrierten "API Test"
-- **Timeout erhöhen**: Erhöhen Sie `WHISPERX_TIMEOUT` in `settings.py`
-- **Netzwerk prüfen**: Testen Sie mit `curl http://localhost:8500/health`
+## 🐳 Service-Übersicht
 
-### Audio-Qualitätsprobleme
-- **FFmpeg installieren**: `brew install ffmpeg` für beste Qualität
-- **Puffergröße anpassen**: Erhöhen Sie die Puffergröße in Geräteeinstellungen
-- **Andere Programme schließen**: Reduzieren Sie die Systemlast
+| Service               | URL/Port              | Zweck                           | Status               |
+|----------------------|----------------------|--------------------------------|---------------------|
+| WhisperX API         | Port 8500            | Transkription & Diarization    | ✅ Läuft auf Server  |
+| Summarization API    | Port 8501            | KI-Zusammenfassungen           | ✅ Läuft auf Server  |
+| Ollama LLM           | Port 11434           | LLM-Modelle für Zusammenfassung | ✅ Läuft auf Server  |
+
+**Hinweis**: Alle Docker-Services laufen bereits auf dem DHBW-Server (`141.72.16.242`) und müssen nicht lokal installiert werden.
+
+### Service Health Checks
+
+Die Anwendung überprüft automatisch alle Services beim Start:
+- ✅ **Grün**: Service verfügbar und funktionsfähig
+- ⚠️ **Gelb**: Service teilweise verfügbar oder Probleme
+- ❌ **Rot**: Service nicht erreichbar
+
+## 🎯 Verwendung
+
+### 1. Grundsetup
+1. **DHBW VPN verbinden** (zwingend erforderlich!)
+2. Anwendung mit `./start.sh` starten
+3. Bei erster Verwendung: **Geräteauswahl** durchführen
+   - Loopback-Gerät: BlackHole 2ch wählen
+   - Mikrofon: Ihr gewünschtes Mikrofon wählen
+
+### 2. Aufnahme starten
+1. **"Start"** klicken
+2. **Audio abspielen** (YouTube, Musik, etc.) → wird automatisch aufgenommen
+3. **Ins Mikrofon sprechen** → wird parallel aufgenommen
+4. **"Stop"** klicken
+
+### 3. Ergebnisse betrachten
+Nach der Aufnahme erhalten Sie automatisch:
+- 📊 **Visuelle Timeline** der Sprecher-Segmente
+- 📝 **Vollständige Transkription** mit Sprecher-Zuordnung
+- 🧠 **KI-Zusammenfassung** mit:
+  - Hauptpunkte des Gesprächs
+  - Identifizierte To-Dos
+  - Teilnehmer-Analyse
+  - Gesprächsstimmung
+
+## 📖 Hilfe & Dokumentation
+
+- **In der App**: Klicken Sie auf **"Hilfe"** für detaillierte Anweisungen
+- **Problembehandlung**: Siehe Hilfe-Bereich in der Anwendung
+- **Vollständiges Manual**: Integrierte Dokumentation mit Schritt-für-Schritt Anweisungen
+
+## 🔧 Erweiterte Konfiguration
+
+### Umgebungsvariablen
+
+Erstellen Sie eine `.env` Datei für individuelle Anpassungen:
+
+```bash
+# API-Endpunkte (Standard: DHBW Server)
+ATA_WHISPERX_API_URL=http://141.72.16.242:8500/transcribe
+ATA_SUMMARIZATION_SERVICE_URL=http://141.72.16.242:8501
+
+# Audio-Qualität
+ATA_SAMPLE_RATE=44100
+ATA_BUFFER_SIZE=4096
+
+# Sprechererkennung
+ATA_MAX_SPEAKERS=3
+ATA_ENABLE_SPEAKER_DIARIZATION=true
+```
+
+### Service-URLs konfigurieren
+
+Die Standard-Konfiguration in `config/settings.py` ist bereits für den DHBW-Server eingestellt:
+
+```python
+# DHBW Server (Standard - keine Änderung nötig)
+WHISPERX_API_URL = "http://141.72.16.242:8500/transcribe"
+SUMMARIZATION_SERVICE_URL = "http://141.72.16.242:8501"
+OLLAMA_SERVICE_URL = "http://141.72.16.242:11434"
+```
+
+## 🚨 Fehlerbehebung
+
+### Häufige Probleme
+
+1. **"Kein BlackHole gefunden"**
+   ```bash
+   # BlackHole neu installieren
+   brew reinstall blackhole-2ch
+   
+   # Audio-Services neu starten
+   sudo killall coreaudiod
+   ```
+
+2. **"API Services nicht erreichbar"**
+   - ✅ VPN-Verbindung zur DHBW prüfen
+   - ✅ Server erreichbar: Testen Sie in der App mit "API Test"
+   - ✅ Service-URLs in settings.py überprüfen
+
+3. **"start.sh findet Komponenten nicht"**
+   ```bash
+   # Homebrew-Pfad manuell hinzufügen (Apple Silicon Macs)
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+   source ~/.zprofile
+   ```
+
+4. **Audioqualitätsprobleme**
+   - Stellen Sie sicher, dass FFmpeg installiert ist (`brew install ffmpeg`)
+   - Puffergröße in Geräteeinstellungen erhöhen
+   - Andere Audio-intensive Programme schließen
+
+### Service-spezifische Probleme
+
+- **WhisperX**: Bei Timeout-Fehlern → Timeout in settings.py erhöhen
+- **Summarization**: Bei langsamer Verarbeitung → Normale Wartezeit bei großen Gesprächen
+- **Allgemein**: VPN-Verbindung zur DHBW ist essenziell für alle Services
+
+### Manuelle Installation (falls start.sh fehlschlägt)
+
+```bash
+# Virtual Environment erstellen
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Dependencies installieren
+pip install -r requirements.txt
+
+# Direkt starten
+python startup.py
+```
 
 ## 📁 Projektstruktur
 
 ```
 ata-audio-aufnahme/
-├── main.py                 # Hauptanwendung
-├── startup.py             # Startup-Check-Script
+├── start.sh               # Automatisches Setup & Start
+├── main.py                # Hauptanwendung
+├── startup.py             # Detaillierte System-Checks
 ├── requirements.txt       # Python-Dependencies
 ├── config/
-│   └── settings.py       # Konfiguration
+│   └── settings.py       # Zentrale Konfiguration
 ├── audio/                # Audio-Verarbeitung
-│   ├── processor.py      # Standard Audio-Processor  
-│   ├── ffmpeg_processor.py # FFmpeg-basierte Aufnahme
+│   ├── processor.py      # Audio-Aufnahme
 │   ├── whisperx_processor.py # WhisperX Integration
 │   └── device_manager.py # Audio-Geräte-Management
 ├── gui/                  # Benutzeroberfläche
-│   ├── dialogs.py       # Dialog-Fenster
-│   ├── components.py    # UI-Komponenten
-│   └── summary_widget.py # Zusammenfassungs-Widget
+│   ├── dialogs.py       # Dialog-Fenster  
+│   ├── components.py    # Timeline & Transkription
+│   └── summary_widget.py # KI-Zusammenfassung
 └── utils/               # Hilfsfunktionen
-    └── logger.py        # Logging-System
+    ├── logger.py        # Logging-System
+    └── service_health_monitor.py # Service-Überwachung
 ```
 
-## 🔗 Docker Container URLs
+## 🌐 Netzwerk-Topologie
 
-- **WhisperX API**: http://localhost:8500
-  - Health Check: http://localhost:8500/health
-  - Transcribe: http://localhost:8500/transcribe
-
-- **Summarization API**: http://localhost:8501
-  - Health Check: http://localhost:8501/health
-  - Summarize: http://localhost:8501/summarize
-
-- **Ollama LLM**: http://localhost:11434
-  - API: http://localhost:11434/api/generate
+```
+[macOS App] ←→ [DHBW VPN] ←→ [Server 141.72.16.242]
+                                ├── WhisperX API (:8500)
+                                ├── Summarization (:8501)
+                                └── Ollama LLM (:11434)
+```
 
 ## 📄 Lizenz
 
-[Lizenzinformationen hier einfügen]
+[Lizenzinformationen einfügen]
 
-## 🤝 Beitragen
+## 🤝 Mitwirken
 
-Beiträge sind willkommen! Bitte erstellen Sie einen Pull Request oder öffnen Sie ein Issue.
+Pull Requests sind willkommen! Bei größeren Änderungen bitte vorher ein Issue erstellen.
 
 ## 📞 Support
 
-Bei Problemen erstellen Sie bitte ein Issue im Repository oder kontaktieren Sie [Support-Kontakt].
+- **In-App Hilfe**: Klicken Sie auf "Hilfe" in der Anwendung
+- **GitHub Issues**: Für Bugs und Feature-Requests
+- **DHBW-Context**: Bei VPN/Server-Problemen an DHBW IT wenden
 
 ---
 
-**Hinweis**: Diese Anwendung ist für macOS optimiert und nutzt systemspezifische Audio-Features. BlackHole ist essentiell für die System-Audio-Aufnahme.
+**⚠️ Wichtiger Hinweis**: Diese Anwendung ist für die Verwendung mit DHBW-Infrastruktur optimiert und erfordert VPN-Zugang. Alle Docker-Services laufen bereits auf dem Server und müssen nicht lokal installiert werden.

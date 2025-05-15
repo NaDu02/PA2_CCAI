@@ -308,19 +308,26 @@ def check_service_health():
 
 def main():
     """Hauptfunktion für den Startup-Check"""
-    print_colored(f"{Colors.BOLD}ATA Audio-Aufnahme - Startup Check{Colors.ENDC}", Colors.BLUE)
-    print_colored("================================", Colors.BLUE)
+    print_colored(f"{Colors.BOLD}ATA Audio-Aufnahme - Detaillierter Check{Colors.ENDC}", Colors.BLUE)
+    print_colored("=" * 50, Colors.BLUE)
 
-    # Überprüfe Dateistruktur
+    # Hinweis dass start.sh bereits system-deps installiert hat
+    print_colored("Hinweis: System-Dependencies wurden bereits von start.sh geprüft", Colors.BLUE)
+    print_colored("-" * 50, Colors.BLUE)
+
+    # Überprüfe nur noch App-spezifische Sachen
     files_ok = check_file_structure()
 
-    # Überprüfe Requirements
+    # Python-Requirements (should be installed by start.sh)
     requirements_ok = check_requirements()
+    if not requirements_ok:
+        print_colored("Warnung: Python-Dependencies nicht vollständig", Colors.YELLOW)
+        print_colored("start.sh sollte diese installiert haben", Colors.YELLOW)
 
-    # Überprüfe Systemvoraussetzungen
+    # Leichte System-Checks (ohne Installation)
     system_ok, critical_issues = check_system_requirements()
 
-    # Überprüfe API-Services (nicht-kritisch)
+    # Service checks
     services_ok, services_critical = check_service_health()
 
     # Zusammenfassung
