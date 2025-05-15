@@ -1,28 +1,26 @@
 # audio/diarization_processor.py
 """
-Verbesserte Diarization-Processor mit WhisperX-Integration
+Lokaler Diarization-Processor als Fallback für API-Ausfälle
+Kombiniert lokale Sprechererkennung mit einfacher Transkription
 """
-import numpy as np
-import soundfile as sf
-import requests
-import io
-import json
-import traceback
 import os
 import time
+import traceback
 from .simple_speaker_diarization import SimpleSpeakerDiarizer
-from config import settings
 
 
 class DiarizationProcessor:
-    def __init__(self, whisper_api_url=None, diarizer=None, logger=None):
-        # Verwende die neue WHISPERX_API_URL aus den Einstellungen
-        self.whisper_api_url = whisper_api_url or settings.WHISPERX_API_URL
-        self.diarizer = diarizer or SimpleSpeakerDiarizer()
+    """
+    Lokaler Fallback-Processor für Sprechererkennung
+    Verwendet only lokale Komponenten - keine API-Abhängigkeiten
+    """
+
+    def __init__(self, logger=None):
+        self.diarizer = SimpleSpeakerDiarizer()
         self.logger = logger
 
     def _log(self, message, level="INFO"):
-        """Logging-Hilfsmethode"""
+        """Zentrale Logging-Methode"""
         if self.logger:
             self.logger.log_message(message, level)
         else:
@@ -30,347 +28,193 @@ class DiarizationProcessor:
 
     def process_complete_audio(self, audio_file_path):
         """
-        Optimierte Methode mit Zeitstempel-basierter Zuordnung und Überwachung
+        Lokale Verarbeitung als Fallback für API-Ausfälle
+        Führt nur Sprechererkennung durch - keine Transkription
+
+        Args:
+            audio_file_path: Pfad zur Audio-Datei
+
+        Returns:
+            Dict mit Diarization-Ergebnissen (ohne Transkription)
         """
         start_time = time.time()
-        full_transcription = ""
-        whisper_segments = []
-        speaker_segments = []
 
         try:
-            # Prüfe zunächst, ob die Datei existiert und nicht leer ist
+            # Datei-Validierung
             if not os.path.exists(audio_file_path):
-                self._log(f"Audio-Datei nicht gefunden: {audio_file_path}", "ERROR")
                 raise FileNotFoundError(f"Audio-Datei nicht gefunden: {audio_file_path}")
 
             file_size = os.path.getsize(audio_file_path)
             if file_size == 0:
-                self._log("Audio-Datei ist leer", "ERROR")
                 raise ValueError("Audio-Datei ist leer")
 
-            self._log(f"Verarbeite Audio-Datei: {audio_file_path} ({file_size / 1024 / 1024:.2f} MB)", "INFO")
+            self._log(f"Lokale Diarization: {audio_file_path} ({file_size / 1024 / 1024:.2f} MB)", "INFO")
+            self._log("⚠️ Hinweis: Nur Sprechererkennung - keine Transkription im Fallback-Modus", "WARNING")
 
-            # Health Check vor Verarbeitung
-            if not self._check_api_health():
-                self._log("⚠️ API Health Check fehlgeschlagen - verwende Fallback", "WARNING")
-                # Hier könnte man auf lokale Verarbeitung umschalten
+            # Lokale Sprechererkennung durchführen
+            speaker_segments = self.diarizer.process_audio(audio_file_path)
 
-            # Transkription mit Zeitstempel anfordern
-            self._log(f"Anfrage an WhisperX-Server: {self.whisper_api_url}", "INFO")
+            if not speaker_segments:
+                self._log("Keine Sprecher erkannt", "WARNING")
+                return self._create_fallback_result("Keine Sprecher erkannt")
 
-            max_retries = 3
-            retry_delay = 2
+            # Verarbeitung erfolgreich
+            processing_time = time.time() - start_time
+            self._log(f"Lokale Diarization abgeschlossen in {processing_time:.2f}s", "SUCCESS")
 
-            for attempt in range(max_retries):
-                try:
-                    with open(audio_file_path, "rb") as vf:
-                        # WhisperX-API Parameter
-                        files = {"file": (audio_file_path, vf, "audio/wav")}
-                        data = {
-                            "timestamps": "true",
-                            "language": settings.WHISPERX_LANGUAGE,
-                            "compute_type": settings.WHISPERX_COMPUTE_TYPE,
-                            "enable_diarization": str(settings.WHISPERX_ENABLE_DIARIZATION).lower()
-                        }
+            # Erstelle Ergebnis-Struktur
+            speakers = set(seg['speaker'] for seg in speaker_segments)
+            self._log(f"Erkannte Sprecher: {len(speakers)}", "INFO")
 
-                        self._log(f"Sende Datei an WhisperX (Versuch {attempt + 1}/{max_retries})...", "INFO")
-                        upload_start = time.time()
+            # Erstelle formatierte Ausgabe
+            labeled_transcription = self._create_speaker_timeline(speaker_segments)
 
-                        # Request mit Timeout
-                        resp = requests.post(
-                            self.whisper_api_url,
-                            files=files,
-                            data=data,
-                            timeout=settings.WHISPERX_TIMEOUT,
-                            headers={'Accept': 'application/json'}
-                        )
+            # Statistiken berechnen
+            total_duration = max(seg['end'] for seg in speaker_segments) if speaker_segments else 0
+            speaker_stats = self._calculate_speaker_statistics(speaker_segments, total_duration)
 
-                        upload_duration = time.time() - upload_start
-                        self._log(f"Upload-Zeit: {upload_duration:.2f}s", "INFO")
+            # Log Statistiken
+            for speaker, percentage in speaker_stats.items():
+                self._log(f"{speaker}: {percentage:.1f}% der Sprechzeit", "INFO")
 
-                    if not resp.ok:
-                        if attempt < max_retries - 1:
-                            self._log(
-                                f"Server-Fehler (Status: {resp.status_code}), wiederhole in {retry_delay} Sekunden...",
-                                "WARNING")
-
-                            # Bei 5xx Fehlern warten wir länger
-                            if resp.status_code >= 500:
-                                time.sleep(retry_delay * 2)
-                            else:
-                                time.sleep(retry_delay)
-                            retry_delay *= 2
-                            continue
-                        else:
-                            self._log(f"Fehler vom Server: {resp.status_code} - {resp.text}", "ERROR")
-                            raise Exception(f"WhisperX-Fehler: {resp.status_code}")
-                    else:
-                        # Erfolgreicher Request
-                        total_time = time.time() - start_time
-                        self._log(f"Verarbeitung abgeschlossen in {total_time:.2f}s", "SUCCESS")
-                        break
-
-                except requests.Timeout:
-                    if attempt < max_retries - 1:
-                        self._log(f"Timeout bei Versuch {attempt + 1}, wiederhole...", "WARNING")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
-                    else:
-                        self._log("Timeout beim Senden an WhisperX-Server nach allen Versuchen", "ERROR")
-                        raise Exception("Timeout beim Senden an WhisperX-Server")
-
-                except requests.ConnectionError as e:
-                    if "Connection aborted" in str(e) or "Connection reset" in str(e):
-                        # Spezielle Behandlung für Connection Reset
-                        if attempt < max_retries - 1:
-                            self._log(f"❌ Verbindung abgebrochen bei Versuch {attempt + 1}: {str(e)}", "WARNING")
-                            # Längere Wartezeit bei Connection Reset
-                            wait_time = min(10 + attempt * 5, 30)
-                            self._log(f"Warte {wait_time}s vor nächstem Versuch...", "INFO")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            self._log(f"❌ Verbindung mehrfach abgebrochen: {e}", "ERROR")
-                            raise Exception(f"Verbindung abgebrochen: {e}")
-                    else:
-                        if attempt < max_retries - 1:
-                            self._log(f"Verbindungsfehler bei Versuch {attempt + 1}: {str(e)}, wiederhole...",
-                                      "WARNING")
-                            time.sleep(retry_delay)
-                            retry_delay *= 2
-                            continue
-                        else:
-                            self._log(f"Verbindungsfehler zu WhisperX-Server: {e}", "ERROR")
-                            raise Exception(f"Verbindungsfehler: {e}")
-
-            # Daten aus der Antwort extrahieren
-            try:
-                response_data = resp.json()
-            except json.JSONDecodeError as e:
-                self._log(f"Ungültige JSON-Antwort vom Server: {e}", "ERROR")
-                self._log(f"Server-Antwort (erste 500 Zeichen): {resp.text[:500]}", "ERROR")
-                raise Exception(f"Ungültige JSON-Antwort: {e}")
-
-            self._log("Server-Antwort erhalten", "SUCCESS")
-
-            # Debugging: Prüfen, welche Felder in der Antwort enthalten sind
-            self._log(f"Antwort-Felder: {', '.join(response_data.keys())}", "INFO")
-
-            # Flexible Extraktion der Daten (verschiedene WhisperX-Versionen)
-            full_transcription = response_data.get("transcription", response_data.get("text", ""))
-            whisper_segments = response_data.get("segments", response_data.get("words", []))
-
-            # Prüfen und erstellen von Whisper-Segmenten, falls keine in der Antwort enthalten sind
-            if not whisper_segments:
-                self._log("Keine Whisper-Segmente in der Antwort gefunden - erstelle eigene Segmente", "WARNING")
-                # Einfache Segmentierung basierend auf Satzzeichen und Länge
-                sentences = self._split_into_sentences(full_transcription)
-                avg_duration = 5.0  # Annahme: durchschnittlich 5 Sekunden pro Segment
-
-                whisper_segments = []
-                start_time = 0
-
-                for sentence in sentences:
-                    # Berechne ungefähre Dauer basierend auf Wortanzahl
-                    words = len(sentence.split())
-                    duration = max(1.0, words * 0.5)  # ca. 0.5 Sekunden pro Wort, mindestens 1 Sekunde
-
-                    whisper_segments.append({
-                        "start": start_time,
-                        "end": start_time + duration,
-                        "text": sentence
-                    })
-
-                    start_time += duration
-            else:
-                self._log(f"Whisper-Segmente gefunden: {len(whisper_segments)}", "INFO")
-
-            # Prüfen, ob die WhisperX-API bereits Diarization gemacht hat
-            if settings.WHISPERX_ENABLE_DIARIZATION and 'speaker' in str(response_data):
-                self._log("WhisperX-API hat bereits Sprechererkennung durchgeführt", "INFO")
-                # Konvertiere WhisperX-Ausgabe in unser Format
-                transcribed_segments = self._convert_whisperx_segments(whisper_segments)
-            else:
-                # Speaker Diarization durchführen (lokal)
-                self._log("Starte lokale Speaker Diarization...", "INFO")
-                speaker_segments = self.diarizer.process_audio(audio_file_path)
-
-                if not speaker_segments:
-                    self._log("Keine Sprecher-Segmente gefunden!", "WARNING")
-                    # Probe-Segment erstellen für Debugging
-                    speaker_segments = [{"start": 0, "end": 5, "speaker": "SPEAKER_0", "duration": 5}]
-                else:
-                    self._log(f"Sprecher-Segmente gefunden: {len(speaker_segments)}", "INFO")
-
-                # Die Timestamps aus Whisper mit den Sprecher-Segments zuordnen
-                self._log("Ordne Sprecher den Whisper-Segmenten zu...", "INFO")
-                transcribed_segments = self._assign_speakers_to_whisper_segments(whisper_segments, speaker_segments)
-
-            if not transcribed_segments:
-                self._log("Keine transkribierten Segmente nach Zuordnung!", "WARNING")
-            else:
-                self._log(f"Transkribierte Segmente erstellt: {len(transcribed_segments)}", "INFO")
-
-            # Sortierte Zusammenfassung erstellen
-            labeled_transcription = self._create_labeled_transcription(transcribed_segments)
-
-            # Rückgabedaten zusammenstellen
-            result = {
-                'full_text': full_transcription,
-                'labeled_text': labeled_transcription,
-                'segments': transcribed_segments,
-                'transcription': full_transcription
-            }
-
-            return result
-
-        except Exception as e:
-            self._log(f"Fehler in process_complete_audio: {str(e)}", "ERROR")
-            traceback.print_exc()
-            # Fallback: Rückgabe nur mit Transkription
             return {
-                'full_text': full_transcription if 'full_transcription' in locals() else "",
-                'labeled_text': "",
-                'segments': [],
-                'transcription': full_transcription if 'full_transcription' in locals() else ""
+                'full_text': "Keine Transkription im Fallback-Modus - nur Sprechererkennung",
+                'labeled_text': labeled_transcription,
+                'segments': speaker_segments,
+                'transcription': f"Lokale Diarization abgeschlossen. {len(speakers)} Sprecher erkannt.",
+                'speaker_count': len(speakers),
+                'total_duration': total_duration,
+                'processing_mode': 'local_fallback'
             }
 
-    def _check_api_health(self):
-        """Überprüft, ob die WhisperX-API verfügbar ist"""
-        try:
-            health_url = self.whisper_api_url.replace('/transcribe', '/health')
-            resp = requests.get(health_url, timeout=5)
-            return resp.ok
-        except:
-            return False
-
-    def _convert_whisperx_segments(self, whisperx_segments):
-        """Konvertiert WhisperX-Segmente mit Speaker-Info in unser Format"""
-        result_segments = []
-
-        for segment in whisperx_segments:
-            result_segments.append({
-                'start': segment.get('start', 0),
-                'end': segment.get('end', 0),
-                'speaker': segment.get('speaker', 'SPEAKER_0'),
-                'text': segment.get('text', ''),
-                'duration': segment.get('end', 0) - segment.get('start', 0)
-            })
-
-        return sorted(result_segments, key=lambda x: x['start'])
-
-    def _split_into_sentences(self, text):
-        """Teilt den Text in Sätze auf"""
-        import re
-        # Verbesserte Segmentierung nach deutschen Satzzeichen
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        # Entferne leere Sätze und sehr kurze Segmente
-        return [s.strip() for s in sentences if len(s.strip()) > 2]
-
-    def _assign_speakers_to_whisper_segments(self, whisper_segments, speaker_segments):
-        """Optimierte Methode zur Zuordnung zwischen Whisper-Segments und Sprechern"""
-        result_segments = []
-
-        try:
-            for whisper_seg in whisper_segments:
-                # Extrahiere Zeitstempel aus Whisper-Segmenten (Namen können variieren)
-                whisper_start = whisper_seg.get('start', 0)
-                whisper_end = whisper_seg.get('end', 0)
-                whisper_text = whisper_seg.get('text', '').strip()
-
-                # Skip leere Segmente
-                if not whisper_text:
-                    continue
-
-                # Finde den besten überlappenden Sprecher
-                best_speaker = None
-                best_overlap = 0
-
-                for speaker_seg in speaker_segments:
-                    # Berechne Überlappung
-                    overlap_start = max(whisper_start, speaker_seg['start'])
-                    overlap_end = min(whisper_end, speaker_seg['end'])
-                    overlap = max(0, overlap_end - overlap_start)
-
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_speaker = speaker_seg['speaker']
-
-                # Wenn kein Überlapp gefunden, nimm den nächsten Sprecher
-                if not best_speaker and speaker_segments:
-                    # Finde nächstliegenden Sprecher
-                    nearest_dist = float('inf')
-
-                    for speaker_seg in speaker_segments:
-                        # Abstand zum Segment berechnen
-                        if whisper_end < speaker_seg['start']:
-                            dist = speaker_seg['start'] - whisper_end
-                        elif whisper_start > speaker_seg['end']:
-                            dist = whisper_start - speaker_seg['end']
-                        else:
-                            dist = 0  # Überlappung
-
-                        if dist < nearest_dist:
-                            nearest_dist = dist
-                            best_speaker = speaker_seg['speaker']
-
-                    # Nur zuweisen wenn nah genug
-                    if nearest_dist > 2.0:  # mehr als 2 Sekunden Abstand
-                        best_speaker = "SPEAKER_0"  # Default-Sprecher
-
-                # Wenn immer noch kein Sprecher gefunden wurde, Standard verwenden
-                if not best_speaker:
-                    best_speaker = "SPEAKER_0"
-
-                # Segment hinzufügen
-                result_segments.append({
-                    'start': whisper_start,
-                    'end': whisper_end,
-                    'speaker': best_speaker,
-                    'text': whisper_text,
-                    'duration': whisper_end - whisper_start
-                })
-
-            # Nach Start-Zeit sortieren
-            result_segments.sort(key=lambda x: x['start'])
-
-            return result_segments
-
         except Exception as e:
-            self._log(f"Fehler in _assign_speakers_to_whisper_segments: {str(e)}", "ERROR")
+            self._log(f"Fehler bei lokaler Diarization: {str(e)}", "ERROR")
             traceback.print_exc()
-            return []
+            return self._create_fallback_result(f"Fehler: {str(e)}")
 
-    def _create_labeled_transcription(self, segments):
-        """Erstellt eine formatierte Transkription mit Sprecher-Labels"""
+    def _create_speaker_timeline(self, segments):
+        """
+        Erstellt eine Timeline der Sprecher ohne Transkription
+
+        Args:
+            segments: Liste der Sprecher-Segmente
+
+        Returns:
+            Formatierte Timeline als String
+        """
         if not segments:
-            return "Keine Sprecher-Segmente verfügbar."
+            return "Keine Sprecher-Segmente gefunden"
 
-        try:
-            labeled_text = []
-            current_speaker = None
+        timeline = ["=== Sprecher-Timeline (ohne Transkription) ===\n"]
 
-            # Gruppiere nach Sprechern in chronologischer Reihenfolge
-            for segment in segments:
-                speaker = segment['speaker']
-                text = segment.get('text', '')
+        current_speaker = None
+        for segment in segments:
+            speaker = segment['speaker']
+            start_time = segment['start']
+            end_time = segment['end']
+            duration = segment['duration']
 
-                # Skip leere Segmente
-                if not text.strip():
-                    continue
+            # Sprecherwechsel markieren
+            if speaker != current_speaker:
+                current_speaker = speaker
+                timeline.append(f"\n[{speaker}]:")
 
-                # Neuen Sprecher mit eigenem Label beginnen
-                if speaker != current_speaker:
-                    current_speaker = speaker
-                    labeled_text.append(f"\n[{speaker}]: ")
+            # Zeit-Segment hinzufügen
+            timeline.append(f"  {start_time:.1f}s - {end_time:.1f}s ({duration:.1f}s)")
 
-                # Text hinzufügen
-                labeled_text.append(text + " ")
+        timeline.append(f"\n\n📊 Zusammenfassung: {len(set(s['speaker'] for s in segments))} Sprecher erkannt")
+        return "\n".join(timeline)
 
-            return "".join(labeled_text).strip()
+    def _calculate_speaker_statistics(self, segments, total_duration):
+        """
+        Berechnet Sprecher-Statistiken
 
-        except Exception as e:
-            self._log(f"Fehler in _create_labeled_transcription: {str(e)}", "ERROR")
-            traceback.print_exc()
-            return "Fehler bei der Erstellung der Transkription."
+        Args:
+            segments: Liste der Sprecher-Segmente
+            total_duration: Gesamtdauer
+
+        Returns:
+            Dict mit Sprecher -> Prozent-Anteil
+        """
+        speaker_times = {}
+
+        for segment in segments:
+            speaker = segment['speaker']
+            duration = segment['duration']
+
+            if speaker in speaker_times:
+                speaker_times[speaker] += duration
+            else:
+                speaker_times[speaker] = duration
+
+        # Berechne Prozentsätze
+        speaker_percentages = {}
+        for speaker, time_spent in speaker_times.items():
+            percentage = (time_spent / total_duration * 100) if total_duration > 0 else 0
+            speaker_percentages[speaker] = percentage
+
+        return speaker_percentages
+
+    def _create_fallback_result(self, error_message):
+        """
+        Erstellt ein Fallback-Ergebnis bei Fehlern
+
+        Args:
+            error_message: Fehlermeldung
+
+        Returns:
+            Standard-Ergebnis-Dictionary
+        """
+        return {
+            'full_text': f"Lokaler Fallback fehlgeschlagen: {error_message}",
+            'labeled_text': f"❌ {error_message}",
+            'segments': [],
+            'transcription': f"Fehler bei lokaler Verarbeitung: {error_message}",
+            'speaker_count': 0,
+            'total_duration': 0,
+            'processing_mode': 'local_fallback_failed'
+        }
+
+    def add_transcription_to_segments(self, segments, full_transcription):
+        """
+        Hilfsmethode um externe Transkription zu Segmenten hinzuzufügen
+        Kann verwendet werden wenn Transkription von anderer Quelle kommt
+
+        Args:
+            segments: Sprecher-Segmente
+            full_transcription: Volltext-Transkription
+
+        Returns:
+            Segments mit angehängter Transkription (heuristisch)
+        """
+        if not segments or not full_transcription:
+            return segments
+
+        # Einfache Heuristik: Teile Text auf Segmente auf
+        # (In produktivem Code würde man hier sophisticated matching verwenden)
+        sentences = self._split_transcription(full_transcription)
+
+        enhanced_segments = []
+        for i, segment in enumerate(segments):
+            # Versuche Satz zuzuordnen (sehr einfache Heuristik)
+            if i < len(sentences):
+                segment = segment.copy()
+                segment['text'] = sentences[i]
+            enhanced_segments.append(segment)
+
+        return enhanced_segments
+
+    def _split_transcription(self, text):
+        """
+        Teilt Transkription in Sätze auf
+
+        Args:
+            text: Volltext
+
+        Returns:
+            Liste von Sätzen
+        """
+        import re
+        # Einfache Satz-Trennung an Satzzeichen
+        sentences = re.split(r'[.!?]+', text)
+        return [s.strip() for s in sentences if s.strip()]

@@ -315,7 +315,7 @@ class SummarizationService:
         else:
             raise ValueError("No suitable text found in transcript data")
 
-        # Füge Kontext hinzu wenn Segmente verfügbar sind
+        # Füge Kontext hinzu, wenn Segmente verfügbar sind
         if 'segments' in transcript_data and transcript_data['segments']:
             segments = transcript_data['segments']
             total_duration = max(seg.get('end', 0) for seg in segments) if segments else 0

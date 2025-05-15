@@ -29,21 +29,15 @@ try:
     from audio.ffmpeg_processor import FFmpegAudioProcessor
 except ImportError:
     FFmpegAudioProcessor = None
-
-if settings.USE_WHISPERX:
-    from audio.whisperx_processor import WhisperXProcessor
-else:
-    from audio.diarization_processor import DiarizationProcessor
 from gui.dialogs import DeviceSelectionDialog, HelpDialog
 from gui.components import SpeakerTimelineWidget, TranscriptionWidget
-from tests.test_recording import TestRecording
 
 
 class ATAAudioApplication:
     def __init__(self, root):
         self.root = root
         self.root.title(f"{settings.APP_NAME} v{settings.APP_VERSION} (macOS)")
-        self.root.geometry("1300x800")  # Etwas größer für bessere Anzeige
+        self.root.geometry("1300x800")  # Größe des Hauptfensters
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Instanzvariablen
@@ -51,7 +45,6 @@ class ATAAudioApplication:
         self.device_manager = DeviceManager(self.logger)
         self.summarization_client = summarization_client
         self.summarization_client.logger = self.logger
-        self.test_recorder = TestRecording(self.device_manager, self.logger)
         self.audio_processor = None
         self.recording = False
 
@@ -80,7 +73,7 @@ class ATAAudioApplication:
         self.status_label = tk.Label(status_frame, text="Status: Initialisierung...", anchor=tk.W)
         self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # API Status Anzeige (neu)
+        # API Status Anzeige
         self.api_status_label = tk.Label(status_frame, text="", anchor=tk.E, fg="blue")
         self.api_status_label.pack(side=tk.RIGHT, padx=(10, 0))
 
@@ -98,9 +91,6 @@ class ATAAudioApplication:
                                      state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
-        self.test_button = tk.Button(button_frame, text="Test", command=self.test_recording, width=10)
-        self.test_button.pack(side=tk.LEFT, padx=5)
-
         self.devices_button = tk.Button(button_frame, text="Geräteauswahl", command=self.show_device_selection,
                                         width=15)
         self.devices_button.pack(side=tk.LEFT, padx=5)
@@ -108,7 +98,7 @@ class ATAAudioApplication:
         self.help_button = tk.Button(button_frame, text="Hilfe", command=self.show_help, width=10)
         self.help_button.pack(side=tk.RIGHT, padx=5)
 
-        # WhisperX API Test Button (neu)
+        # WhisperX API Test Button
         self.api_test_button = tk.Button(button_frame, text="API Test", command=self.test_whisperx_api, width=10)
         self.api_test_button.pack(side=tk.RIGHT, padx=5)
 
@@ -125,14 +115,6 @@ class ATAAudioApplication:
                                                   variable=self.summarization_var,
                                                   command=self.toggle_summarization)
         self.summarization_check.pack(side=tk.RIGHT, padx=5)
-
-        # WhisperX API Toggle
-        if hasattr(settings, 'USE_WHISPERX_API'):
-            self.whisperx_api_var = tk.BooleanVar(value=settings.USE_WHISPERX_API)
-            self.whisperx_api_check = tk.Checkbutton(button_frame, text="WhisperX API",
-                                                     variable=self.whisperx_api_var,
-                                                     command=self.toggle_whisperx_api)
-            self.whisperx_api_check.pack(side=tk.RIGHT, padx=5)
 
         # Log-Bereich
         log_frame = tk.LabelFrame(main_frame, text="Protokoll")
@@ -233,21 +215,8 @@ class ATAAudioApplication:
             self.logger.log_message(f"Unerwarteter Fehler beim API-Test: {e}", "ERROR")
             traceback.print_exc()
 
-    def toggle_whisperx_api(self):
-        """Wechselt zwischen WhisperX API und lokaler Verarbeitung"""
-        settings.USE_WHISPERX_API = self.whisperx_api_var.get()
-        status = "aktiviert" if settings.USE_WHISPERX_API else "deaktiviert"
-        self.logger.log_message(f"WhisperX API {status}", "INFO")
-
-        # Status-Label aktualisieren
-        if settings.USE_WHISPERX_API:
-            # Kurzer API Test
-            self.root.after(100, self.quick_api_check)
-        else:
-            self.api_status_label.config(text="API: Deaktiviert", fg="gray")
-
-    def quick_api_check(self):
-        """Schneller API Check ohne GUI-Blockierung"""
+    def _check_api_status(self):
+        """Prüft den Status der WhisperX-API"""
         try:
             health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
             response = requests.get(health_url, timeout=3)
@@ -290,7 +259,7 @@ class ATAAudioApplication:
         # WhisperX-API prüfen, falls aktiviert
         if hasattr(settings, 'USE_WHISPERX_API') and settings.USE_WHISPERX_API:
             self.logger.log_message("Prüfe WhisperX-API...", "INFO")
-            self.quick_api_check()
+            self.root.after(100, self._check_api_status)
 
         # Geräteauswahl nach kurzer Verzögerung anzeigen
         self.root.after(500, self.show_device_selection)
@@ -583,45 +552,6 @@ class ATAAudioApplication:
 
         return stats
 
-    def test_recording(self):
-        """Führt einen Test durch."""
-        if self.recording:
-            self.logger.log_message("Test nicht möglich - Aufnahme läuft bereits.", "WARNING")
-            messagebox.showwarning("Warnung", "Test nicht möglich - Aufnahme läuft bereits.")
-            return
-
-        # Deaktiviere Buttons während Test
-        self.start_button.config(state=tk.DISABLED)
-        self.stop_button.config(state=tk.DISABLED)
-        self.test_button.config(state=tk.DISABLED)
-        self.devices_button.config(state=tk.DISABLED)
-
-        self.logger.log_message("Testaufnahme (5 Sekunden)...", "INFO")
-
-        # Geräteauswahl prüfen
-        if self.selected_loopback is None or self.selected_microphone is None:
-            if messagebox.askyesno("Geräteauswahl",
-                                   "Keine Audiogeräte ausgewählt. Möchten Sie jetzt Geräte auswählen?"):
-                self.show_device_selection()
-            else:
-                self.reset_buttons()
-                return
-
-        if self.selected_loopback is None or self.selected_microphone is None:
-            self.logger.log_message("Test abgebrochen - keine Geräte ausgewählt.", "WARNING")
-            self.reset_buttons()
-            return
-
-        # Test durchführen
-        self.test_recorder.run_test(
-            self.selected_loopback,
-            self.selected_microphone,
-            self.loopback_channels,
-            self.microphone_channels
-        )
-
-        # Buttons wieder aktivieren
-        self.reset_buttons()
 
     def reset_buttons(self):
         """Setzt die Button-Status zurück."""

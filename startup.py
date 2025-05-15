@@ -42,14 +42,12 @@ def check_file_structure():
         'audio/device_manager.py',
         'audio/diarization_processor.py',
         'audio/simple_speaker_diarization.py',
-        'audio/whisperx_processor.py',  # Neue Datei
+        'audio/whisperx_processor.py',
         'gui/__init__.py',
         'gui/dialogs.py',
         'gui/components.py',
         'utils/__init__.py',
         'utils/logger.py',
-        'tests/__init__.py',
-        'tests/test_recording.py',
         'requirements.txt'
     ]
 
@@ -100,7 +98,7 @@ def check_requirements():
             if package == 'scikit-learn':
                 import_name = 'sklearn'
             elif package == 'whisperx':
-                # Spezielle Behandlung für whisperx, da es möglicherweise direkt von GitHub installiert wurde
+                # Spezielle Behandlung für whisperx
                 try:
                     # Versuche zu importieren
                     importlib.import_module('whisperx')
@@ -162,49 +160,25 @@ def check_system_requirements():
 
     # WhisperX API oder lokale Installation prüfen
     try:
-        from config.settings import USE_WHISPERX, USE_WHISPERX_API, WHISPERX_API_URL
+        from config.settings import USE_WHISPERX_API, WHISPERX_API_URL
 
-        if USE_WHISPERX and USE_WHISPERX_API:
-            # Bei API-Nutzung nur prüfen, ob URL konfiguriert ist
+        if USE_WHISPERX_API:
             if WHISPERX_API_URL:
                 print_colored(f"✓ WhisperX API URL konfiguriert: {WHISPERX_API_URL}", Colors.GREEN)
             else:
                 print_colored("✗ WhisperX API URL nicht konfiguriert", Colors.RED)
                 issues.append("WhisperX API URL fehlt in settings.py")
                 critical_issues = True
-        elif USE_WHISPERX:
-            # Bei lokaler Nutzung WhisperX prüfen
-            try:
-                import whisperx
-                print_colored("✓ WhisperX ist lokal installiert", Colors.GREEN)
-            except ImportError:
-                print_colored("✗ WhisperX nicht gefunden - wird für lokale Sprechererkennung benötigt", Colors.YELLOW)
-                if python_version.major == 3 and python_version.minor > 12:
+        else:
+            print_colored("⚠️ WhisperX API deaktiviert", Colors.YELLOW)
+            if python_version.major == 3 and python_version.minor > 12:
                     print_colored(
-                        "  Hinweis: Python 3.13+ ist nicht mit WhisperX kompatibel. Verwenden Sie Python 3.9-3.12 oder die API.",
-                        Colors.YELLOW)
-                issues.append("WhisperX nicht installiert (nur für lokale Verarbeitung nötig)")
+                        "  Hinweis: Python 3.13+ ist nicht mit WhisperX kompatibel. Verwenden Sie Python 3.9-3.12 oder die API.", Colors.YELLOW)
+                    issues.append("WhisperX nicht installiert (nur für lokale Verarbeitung nötig)")
     except (ImportError, AttributeError):
         print_colored("✗ WhisperX-Konfiguration unvollständig in settings.py", Colors.RED)
         issues.append("WhisperX-Konfiguration fehlt oder ist unvollständig")
         critical_issues = True
-
-    # Hugging Face Token prüfen (nur bei lokaler Verarbeitung wichtig)
-    try:
-        from config.settings import HUGGINGFACE_TOKEN, USE_WHISPERX_API
-
-        if not USE_WHISPERX_API and HUGGINGFACE_TOKEN:
-            print_colored("✓ Hugging Face Token gefunden", Colors.GREEN)
-        elif not USE_WHISPERX_API and not HUGGINGFACE_TOKEN:
-            print_colored("✗ Hugging Face Token fehlt in settings.py (nur für lokale Verarbeitung nötig)",
-                          Colors.YELLOW)
-            issues.append("Hugging Face Token fehlt - erforderlich für lokale pyannote.audio")
-        else:
-            # Bei API-Nutzung nicht relevant
-            print_colored("✓ Hugging Face Token gefunden", Colors.GREEN)
-    except (ImportError, AttributeError):
-        print_colored("✗ Hugging Face Token nicht in settings.py definiert", Colors.YELLOW)
-        issues.append("Hugging Face Token fehlt - erforderlich für lokale pyannote.audio")
 
     # FFmpeg als optional markieren, wenn API verwendet wird
     try:
@@ -270,25 +244,6 @@ def install_missing_requirements():
                                 capture_output=True, text=True)
 
         if result.returncode == 0:
-            # Optional: WhisperX Prüfung - nur wenn lokale Verarbeitung konfiguriert ist
-            try:
-                from config.settings import USE_WHISPERX_API
-                if not USE_WHISPERX_API:
-                    print_colored("Installiere WhisperX für lokale Verarbeitung...", Colors.BLUE)
-                    whisperx_result = subprocess.run(
-                        [sys.executable, '-m', 'pip', 'install', 'git+https://github.com/m-bain/whisperX.git'],
-                        capture_output=True, text=True
-                    )
-
-                    if whisperx_result.returncode == 0:
-                        print_colored("✓ WhisperX erfolgreich installiert!", Colors.GREEN)
-                    else:
-                        print_colored(f"✗ Fehler bei der WhisperX-Installation: {whisperx_result.stderr}", Colors.RED)
-                        return False
-            except (ImportError, AttributeError):
-                # Wenn Einstellung nicht gefunden wird, nichts tun
-                pass
-
             print_colored("✓ Pakete erfolgreich installiert!", Colors.GREEN)
             return True
         else:

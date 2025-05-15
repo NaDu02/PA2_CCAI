@@ -1,4 +1,4 @@
-# audio/summarization_client.py - VERBESSERTE VERSION
+# audio/summarization_client.py - VERBESSERTE VERSION MIT FIX
 """
 Verbesserter Client für den Summarization Service mit Pre-Processing
 """
@@ -141,7 +141,8 @@ class SummarizationClient:
         # 3. Füge Kontext-Informationen hinzu
         processed_data['analysis_context'] = {
             'total_speakers': len(set(seg.get('speaker', 'UNKNOWN') for seg in processed_data.get('segments', []))),
-            'estimated_duration': self._estimate_conversation_duration(processed_data.get('segments', [])),
+            'estimated_duration': f"{self._estimate_conversation_duration(processed_data.get('segments', [])):.1f}",
+            # Als String
             'conversation_type': self._detect_conversation_type(processed_data),
             'language': 'german',  # Für bessere deutsche Analyse
             'detailed_analysis_requested': True
@@ -192,7 +193,7 @@ class SummarizationClient:
             speaker_stats[speaker]['segment_count'] += 1
             total_duration += duration
 
-        # Berechne erweiterte Statistiken
+        # Berechne erweiterte Statistiken - ALLES ALS STRINGS
         for speaker, stats in speaker_stats.items():
             if stats['segment_count'] > 0:
                 stats['avg_words_per_segment'] = stats['word_count'] / stats['segment_count']
@@ -207,6 +208,12 @@ class SummarizationClient:
                     stats['participation_level'] = 'mittel'
                 else:
                     stats['participation_level'] = 'niedrig'
+
+                # FIX: Konvertiere alle numerischen Werte zu Strings
+                stats['total_time_str'] = f"{stats['total_time']:.1f}"
+                stats['time_percentage_str'] = f"{stats['time_percentage']:.1f}"
+                stats['words_per_minute_str'] = f"{stats['words_per_minute']:.1f}"
+                stats['avg_words_per_segment_str'] = f"{stats['avg_words_per_segment']:.1f}"
 
         return speaker_stats
 
@@ -249,25 +256,39 @@ class SummarizationClient:
         # Füge Original-Statistiken hinzu
         if 'segments' in original_data:
             segments = original_data['segments']
+            total_duration = self._estimate_conversation_duration(segments)
+
             summary['conversation_metrics'] = {
                 'total_segments': len(segments),
                 'unique_speakers': len(set(seg.get('speaker', 'UNKNOWN') for seg in segments)),
                 'total_words': sum(len(seg.get('text', '').split()) for seg in segments),
-                'estimated_duration_minutes': self._estimate_conversation_duration(segments) / 60
+                # FIX: Alle numerischen Werte als Strings
+                'estimated_duration_minutes': f"{total_duration / 60:.1f}",
+                'duration_estimate': f"{total_duration:.1f}s"
             }
 
         # Validiere und verbessere To-Dos
         if 'todos' in summary:
             summary['todos'] = self._enhance_todos(summary['todos'])
 
-        # Füge Zusammenfassungsstatistiken hinzu
+        # Füge Zusammenfassungsstatistiken hinzu - ALLES ALS STRINGS
         summary_stats = {
-            'main_points_count': len(summary.get('summary', {}).get('main_points', [])),
-            'todos_count': len(summary.get('todos', [])),
-            'participants_count': len(summary.get('participants', [])),
-            'quality_score': self._calculate_quality_score(summary)
+            'main_points_count': str(len(summary.get('summary', {}).get('main_points', []))),
+            'todos_count': str(len(summary.get('todos', []))),
+            'participants_count': str(len(summary.get('participants', []))),
+            'quality_score': str(self._calculate_quality_score(summary))
         }
         summary['summary_statistics'] = summary_stats
+
+        # FIX: Konvertiere alle participant statistics zu Strings
+        if 'participants' in summary:
+            for participant in summary['participants']:
+                if 'statistics' in participant:
+                    stats = participant['statistics']
+                    # Konvertiere alle numerischen Werte zu Strings
+                    for key, value in stats.items():
+                        if isinstance(value, (int, float)):
+                            stats[key] = f"{value:.1f}"
 
         return summary
 

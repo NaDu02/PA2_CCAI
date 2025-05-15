@@ -11,11 +11,8 @@ import soundfile as sf
 from config import settings
 
 # Import basierend auf Konfiguration
-if settings.USE_WHISPERX:
-    try:
-        from .whisperx_processor import WhisperXProcessor as AudioTranscriber
-    except ImportError:
-        from .diarization_processor import DiarizationProcessor as AudioTranscriber
+if settings.USE_WHISPERX_API:
+    from .whisperx_processor import WhisperXProcessor as AudioTranscriber
 else:
     from .diarization_processor import DiarizationProcessor as AudioTranscriber
 
