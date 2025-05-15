@@ -243,10 +243,6 @@ ata-audio-aufnahme/
                                 └── Ollama LLM (:11434)
 ```
 
-## 📄 Lizenz
-
-[Lizenzinformationen einfügen]
-
 ## 🤝 Mitwirken
 
 Pull Requests sind willkommen! Bei größeren Änderungen bitte vorher ein Issue erstellen.
