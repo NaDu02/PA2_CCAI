@@ -18,6 +18,7 @@ Eine hochentwickelte macOS-Anwendung für parallele System- und Mikrofon-Audioau
 - **Python 3.8+** (empfohlen: 3.9–3.12)
 - **VPN-Verbindung zur DHBW Mannheim** (für Docker-Services)
 - **Homebrew** (wird automatisch installiert, falls nicht vorhanden)
+- **FFmpeg** (wird automatisch installiert für beste Audioqualität)
 
 ## 🔄 Installation
 
@@ -47,7 +48,8 @@ Das `start.sh` Skript führt automatisch folgende Schritte durch:
   - Homebrew (falls nicht vorhanden)
   - Python 3.11+ (falls nicht vorhanden)
   - BlackHole Audio Driver
-  - FFmpeg (für beste Audioqualität)
+- **Installiert automatisch:**
+  - **FFmpeg (für beste Audioqualität)**
 - **Erstellt/aktiviert Virtual Environment**
 - **Installiert Python-Dependencies**
 - **Startet die Anwendung**
@@ -187,7 +189,7 @@ OLLAMA_SERVICE_URL = "http://141.72.16.242:11434"
    ```
 
 4. **Audioqualitätsprobleme**
-   - Stellen Sie sicher, dass FFmpeg installiert ist (`brew install ffmpeg`)
+   - FFmpeg wird automatisch installiert, aber falls manuell nötig: `brew install ffmpeg`
    - Puffergröße in Geräteeinstellungen erhöhen
    - Andere Audio-intensive Programme schließen
 
@@ -206,6 +208,9 @@ source .venv/bin/activate
 
 # Dependencies installieren
 pip install -r requirements.txt
+
+# Falls FFmpeg fehlt (wird normalerweise automatisch installiert)
+brew install ffmpeg
 
 # Direkt starten
 python startup.py

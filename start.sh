@@ -134,15 +134,15 @@ if $needs_blackhole; then
     fi
 fi
 
-# FFmpeg (optional aber empfohlen)
+# FFmpeg (automatisch installieren ohne Nachfrage)
 if $needs_ffmpeg; then
-    echo -e "${YELLOW}FFmpeg verbessert die Audio-Qualität erheblich.${NC}"
-    if ask_install "FFmpeg"; then
-        echo -e "${YELLOW}Installiere FFmpeg...${NC}"
-        brew install ffmpeg
+    echo -e "${YELLOW}FFmpeg wird für optimale Audio-Qualität installiert...${NC}"
+    brew install ffmpeg
+    if command -v ffmpeg &> /dev/null; then
         echo -e "${GREEN}✓ FFmpeg installiert${NC}"
     else
-        echo -e "${BLUE}ℹ️  FFmpeg übersprungen. Fallback auf Standard-Audio-Processor.${NC}"
+        echo -e "${YELLOW}⚠️  FFmpeg Installation fehlgeschlagen (nicht kritisch)${NC}"
+        echo -e "${BLUE}   Fallback auf Standard-Audio-Processor möglich${NC}"
     fi
 fi
 
