@@ -254,6 +254,58 @@ def install_missing_requirements():
         return False
 
 
+def check_service_health():
+    """Überprüft den Status aller API-Services"""
+    print_header("Überprüfe API-Services")
+
+    # Import hier um zirkuläre Imports zu vermeiden
+    try:
+        from utils.service_health_monitor import ServiceHealthMonitor
+        from config import settings
+
+        monitor = ServiceHealthMonitor()
+        results = monitor.check_all_services(detailed=False)
+        summary = monitor.get_service_summary()
+
+        healthy_count = summary["healthy_count"]
+        total_count = summary["total_count"]
+
+        # Zeige Ergebnisse
+        for service_id, status in results.items():
+            if status.healthy:
+                print_colored(f"✓ {status.name}: OK ({status.response_time:.2f}s)", Colors.GREEN)
+            else:
+                print_colored(f"✗ {status.name}: {status.error_message}", Colors.RED)
+
+        # Zusammenfassung
+        if healthy_count == total_count:
+            print_colored(f"\n✓ Alle {total_count} Services sind verfügbar!", Colors.GREEN)
+            return True, False
+        elif healthy_count > 0:
+            print_colored(f"\n⚠️ {healthy_count} von {total_count} Services verfügbar", Colors.YELLOW)
+            print_colored("Das Programm kann trotzdem gestartet werden mit eingeschränkter Funktionalität",
+                          Colors.YELLOW)
+            return True, False  # Nicht kritisch, aber mit Einschränkungen
+        else:
+            print_colored(f"\n❌ Keine Services verfügbar!", Colors.RED)
+            print_colored("Überprüfen Sie die Docker-Container:", Colors.YELLOW)
+
+            # Zeige Server-Status statt Docker-Befehle
+            print_colored("\nÜberprüfen Sie die Server-Services:", Colors.YELLOW)
+            print_colored("WhisperX API: http://141.72.16.242:8500/health", Colors.BLUE)
+            print_colored("Summarization Service: http://141.72.16.242:8501/health", Colors.BLUE)
+            print_colored("Ollama Service: http://localhost:11434/api/tags", Colors.BLUE)
+
+            return False, False  # Services down, aber nicht kritisch für Audio
+
+    except ImportError as e:
+        print_colored(f"⚠️ Service-Check nicht verfügbar: {e}", Colors.YELLOW)
+        return True, False
+    except Exception as e:
+        print_colored(f"⚠️ Fehler beim Service-Check: {e}", Colors.YELLOW)
+        return True, False
+
+
 def main():
     """Hauptfunktion für den Startup-Check"""
     print_colored(f"{Colors.BOLD}ATA Audio-Aufnahme - Startup Check{Colors.ENDC}", Colors.BLUE)
@@ -268,16 +320,30 @@ def main():
     # Überprüfe Systemvoraussetzungen
     system_ok, critical_issues = check_system_requirements()
 
+    # Überprüfe API-Services (nicht-kritisch)
+    services_ok, services_critical = check_service_health()
+
     # Zusammenfassung
     print_header("Zusammenfassung")
 
-    if files_ok and requirements_ok and (system_ok or not critical_issues):
-        print_colored("✓ Alle kritischen Überprüfungen erfolgreich!", Colors.GREEN)
+    # Bewerte kritische vs. nicht-kritische Probleme (Docker entfernt)
+    core_systems_ok = files_ok and requirements_ok and (system_ok or not critical_issues)
+
+    if core_systems_ok:
+        print_colored("✓ Alle kritischen Komponenten sind verfügbar!", Colors.GREEN)
+
+        # Zeige Service-Status
+        if not services_ok:
+            print_colored("⚠️ Einige API-Services sind nicht verfügbar", Colors.YELLOW)
+            print_colored("  → Grund-Funktionen (Audio-Aufnahme) funktionieren trotzdem", Colors.BLUE)
+            print_colored("  → Erweiterte Features (Transkription, Zusammenfassung) möglicherweise begrenzt",
+                          Colors.BLUE)
+            print_colored("  → Überprüfen Sie die Server-Verbindung", Colors.BLUE)
+
         print_colored("\nStarte Hauptprogramm...\n", Colors.BLUE)
 
         # Starte das Hauptprogramm
         try:
-            # Verwende subprocess um main.py direkt auszuführen
             result = subprocess.run([sys.executable, 'main.py'])
             return result.returncode
         except Exception as e:
@@ -285,28 +351,35 @@ def main():
             import traceback
             traceback.print_exc()
             return 1
+
     else:
         if not critical_issues:
             print_colored("⚠️ Einige Überprüfungen sind fehlgeschlagen, aber keine kritischen Probleme!", Colors.YELLOW)
             response = input("\nMöchten Sie das Programm trotzdem starten? (j/n): ")
             if response.lower() == 'j':
                 print_colored("\nStarte Hauptprogramm...\n", Colors.BLUE)
-                # Verwende subprocess um main.py direkt auszuführen
                 result = subprocess.run([sys.executable, 'main.py'])
                 return result.returncode
         else:
             print_colored("✗ Einige kritische Überprüfungen sind fehlgeschlagen!", Colors.RED)
+            print_colored("Das Programm kann ohne diese Komponenten nicht ordnungsgemäß funktionieren.", Colors.RED)
 
         if not requirements_ok:
             response = input("\nMöchten Sie die fehlenden Pakete jetzt installieren? (j/n): ")
             if response.lower() == 'j':
                 if install_missing_requirements():
                     print_colored("\nPakete wurden installiert. Starte Programm neu...", Colors.GREEN)
-                    # Rekursiver Aufruf nach Installation
-                    return main()
+                    return main()  # Rekursiver Aufruf nach Installation
                 else:
                     print_colored("\nInstallation fehlgeschlagen. Bitte installieren Sie die Pakete manuell.",
                                   Colors.RED)
+
+        # Zeige Hilfe für Service-Probleme (ohne Docker-Befehle)
+        if not services_ok:
+            print_colored("\nTipp: Überprüfen Sie die Server-Services:", Colors.BLUE)
+            print_colored("  WhisperX API: http://141.72.16.242:8500/health", Colors.BLUE)
+            print_colored("  Summarization Service: http://141.72.16.242:8501/health", Colors.BLUE)
+            print_colored("  Kontaktieren Sie den Administrator bei anhaltenden Problemen", Colors.BLUE)
 
         return 1
 

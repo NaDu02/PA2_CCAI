@@ -23,6 +23,7 @@ from audio.device_manager import DeviceManager
 from audio.processor import AudioProcessor
 from audio.summarization_client import summarization_client
 from gui.summary_widget import SummaryWidget
+from utils.service_health_monitor import ServiceHealthMonitor
 
 
 try:
@@ -47,6 +48,7 @@ class ATAAudioApplication:
         self.summarization_client.logger = self.logger
         self.audio_processor = None
         self.recording = False
+        self.service_monitor = ServiceHealthMonitor(logger=self.logger)
 
         # Ausgewählte Geräte
         self.selected_loopback = None
@@ -160,72 +162,166 @@ class ATAAudioApplication:
         self.logger.set_log_text_widget(self.log_text)
 
     def test_whisperx_api(self):
-        """Testet die WhisperX-API Verbindung"""
+        """Testet alle drei API-Services: WhisperX, Summarization und Ollama"""
         if self.recording:
             messagebox.showwarning("Warnung", "Bitte stoppen Sie die Aufnahme vor dem API-Test.")
             return
 
         try:
-            self.logger.log_message("Teste WhisperX-API Verbindung...", "INFO")
+            # Verwende den Service Monitor für umfassende Tests
+            results = self.service_monitor.check_all_services(detailed=True)
 
-            # Health Check
-            health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
-            self.logger.log_message(f"Teste Health-Endpoint: {health_url}", "INFO")
+            # Analysiere Ergebnisse
+            summary = self.service_monitor.get_service_summary()
+            healthy_count = summary["healthy_count"]
+            total_count = summary["total_count"]
 
-            try:
-                response = requests.get(health_url, timeout=10)
+            # Aktualisiere UI basierend auf Ergebnissen
+            self._update_service_status_ui(results, summary)
 
-                if response.ok:
-                    self.logger.log_message("✅ API Health Check erfolgreich", "SUCCESS")
-                    try:
-                        health_data = response.json()
-                        self.logger.log_message(f"Server Info: {json.dumps(health_data, indent=2)}", "INFO")
-
-                        # API Status anzeigen
-                        device = health_data.get('device', 'unknown')
-                        model_loaded = health_data.get('model_loaded', False)
-                        self.api_status_label.config(
-                            text=f"API: OK ({device}, Modell: {'Ja' if model_loaded else 'Nein'})",
-                            fg="green"
-                        )
-                    except:
-                        self.logger.log_message("Health Response ist kein JSON", "WARNING")
-                        self.api_status_label.config(text="API: OK (Status unbekannt)", fg="orange")
-                else:
-                    self.logger.log_message(f"❌ Health Check fehlgeschlagen: HTTP {response.status_code}", "ERROR")
-                    self.api_status_label.config(text=f"API: Fehler {response.status_code}", fg="red")
-
-            except requests.exceptions.ConnectionError:
-                self.logger.log_message("❌ Verbindung zur API fehlgeschlagen - ist der Server gestartet?", "ERROR")
-                self.api_status_label.config(text="API: Nicht erreichbar", fg="red")
-            except requests.exceptions.Timeout:
-                self.logger.log_message("❌ API Health Check Timeout", "ERROR")
-                self.api_status_label.config(text="API: Timeout", fg="red")
-            except Exception as e:
-                self.logger.log_message(f"❌ API Test Fehler: {e}", "ERROR")
-                self.api_status_label.config(text=f"API: Fehler", fg="red")
-
-            # Zusätzliche API-Informationen
-            self.logger.log_message(f"Konfigurierte API-URL: {settings.WHISPERX_API_URL}", "INFO")
-            self.logger.log_message(f"Sprache: {settings.WHISPERX_LANGUAGE}", "INFO")
-            self.logger.log_message(f"Diarization aktiviert: {settings.WHISPERX_ENABLE_DIARIZATION}", "INFO")
-            self.logger.log_message(f"Compute Type: {settings.WHISPERX_COMPUTE_TYPE}", "INFO")
+            # Zeige Docker-Commands wenn Services down sind
+            if healthy_count < total_count:
+                self._show_docker_help(results)
 
         except Exception as e:
-            self.logger.log_message(f"Unerwarteter Fehler beim API-Test: {e}", "ERROR")
+            self.logger.log_message(f"Unerwarteter Fehler beim Service-Test: {e}", "ERROR")
             traceback.print_exc()
 
     def _check_api_status(self):
-        """Prüft den Status der WhisperX-API"""
+        """Prüft den Status aller APIs beim Startup"""
         try:
-            health_url = settings.WHISPERX_API_URL.replace('/transcribe', '/health')
-            response = requests.get(health_url, timeout=3)
-            if response.ok:
-                self.api_status_label.config(text="API: Verfügbar", fg="green")
+            # Verwende Service Monitor für automatische Checks
+            results = self.service_monitor.check_all_services(detailed=False)
+            summary = self.service_monitor.get_service_summary()
+
+            # Aktualisiere UI
+            self._update_service_status_ui(results, summary)
+
+        except Exception as e:
+            self.logger.log_message(f"Fehler bei automatischem API-Check: {e}", "ERROR")
+            self.api_status_label.config(text="API: Check fehlgeschlagen", fg="red")
+
+    def _update_service_status_ui(self, results: dict, summary: dict):
+        """Aktualisiert die UI mit detaillierten Service-Status"""
+        healthy_count = summary["healthy_count"]
+        total_count = summary["total_count"]
+
+        # Bestimme Gesamtstatus
+        if healthy_count == total_count:
+            status_text = f"APIs: Alle {total_count} Services OK"
+            status_color = "green"
+        elif healthy_count > 0:
+            status_text = f"APIs: {healthy_count}/{total_count} Services OK"
+            status_color = "orange"
+        else:
+            status_text = "APIs: Alle Services down"
+            status_color = "red"
+
+        # Aktualisiere API Status Label
+        self.api_status_label.config(text=status_text, fg=status_color)
+
+        # Detaillierte Logs für jeden Service
+        self.logger.log_message("\n=== Detaillierter Service-Status ===", "INFO")
+        for service_id, status in results.items():
+            if status.healthy:
+                self.logger.log_message(f"✅ {status.name}: Aktiv", "SUCCESS")
+
+                # Service-spezifische Details loggen
+                if status.details:
+                    if service_id == "whisperx":
+                        device = status.details.get("device", "unknown")
+                        model_loaded = status.details.get("model_loaded", False)
+                        gpu_memory = status.details.get("gpu_memory")
+                        self.logger.log_message(
+                            f"   Device: {device}, Model: {'OK' if model_loaded else 'Nicht geladen'}", "INFO")
+                        if gpu_memory:
+                            self.logger.log_message(f"   GPU Memory: {gpu_memory}MB", "INFO")
+
+
+                    elif service_id == "summarization":
+                        service_status = status.details.get("status", "unknown")
+                        ollama_status = status.details.get("ollama_status", "unknown")
+                        ollama_model = status.details.get("ollama_model", "unknown")
+                        service_initialized = status.details.get("service_initialized", False)
+                        self.logger.log_message(f"   Status: {service_status}", "INFO")
+                        self.logger.log_message(f"   Ollama: {ollama_status} (Model: {ollama_model})", "INFO")
+                        self.logger.log_message(f"   Initialisiert: {'Ja' if service_initialized else 'Nein'}", "INFO")
+                        # Zeige positive Meldung wenn alles funktioniert
+                        if ollama_status == "available" and service_initialized:
+                            self.logger.log_message(f"   ✅ Service vollständig funktionsfähig", "SUCCESS")
+
+                    elif service_id == "ollama":
+                        model_count = status.details.get("model_count", 0)
+                        available_models = status.details.get("available_models", [])
+                        total_size_gb = round(status.details.get("total_size", 0) / (1024 ** 3), 1)
+                        self.logger.log_message(f"   Verfügbare Modelle: {model_count}", "INFO")
+                        self.logger.log_message(f"   Gesamtgröße: {total_size_gb}GB", "INFO")
+                        if available_models:
+                            models_str = ", ".join(available_models[:3])
+                            if len(available_models) > 3:
+                                models_str += f" (+{len(available_models) - 3} weitere)"
+                            self.logger.log_message(f"   Modelle: {models_str}", "INFO")
             else:
-                self.api_status_label.config(text=f"API: Fehler {response.status_code}", fg="red")
-        except:
-            self.api_status_label.config(text="API: Nicht erreichbar", fg="red")
+                self.logger.log_message(f"❌ {status.name}: {status.error_message}", "ERROR")
+
+    def _show_docker_help(self, results: dict):
+        """Zeigt Docker-Befehle für fehlerhafte Services an"""
+        self.logger.log_message("\n=== Docker-Hilfe für fehlerhafte Services ===", "INFO")
+
+        failed_services = [s for s in results.values() if not s.healthy]
+
+        if failed_services:
+            self.logger.log_message("Mögliche Lösungsschritte:", "INFO")
+            self.logger.log_message("", "INFO")
+
+            # Service-spezifische Docker-Befehle
+            docker_commands = self.service_monitor.get_docker_commands()
+
+            self.logger.log_message("1. Status überprüfen:", "INFO")
+            for cmd in docker_commands["status"]:
+                self.logger.log_message(f"   {cmd}", "INFO")
+
+            self.logger.log_message("", "INFO")
+            self.logger.log_message("2. Services starten:", "INFO")
+            for cmd in docker_commands["start"]:
+                self.logger.log_message(f"   {cmd}", "INFO")
+
+            self.logger.log_message("", "INFO")
+            self.logger.log_message("3. Bei Problemen neu starten:", "INFO")
+            for cmd in docker_commands["restart"]:
+                self.logger.log_message(f"   {cmd}", "INFO")
+
+            self.logger.log_message("", "INFO")
+            self.logger.log_message("4. Logs prüfen:", "INFO")
+            for cmd in docker_commands["logs"]:
+                self.logger.log_message(f"   {cmd}", "INFO")
+
+            # Spezifische Tipps für einzelne Services
+            for service_id, status in results.items():
+                if not status.healthy:
+                    self._show_service_specific_help(service_id, status)
+
+    def _show_service_specific_help(self, service_id: str, status):
+        """Zeigt service-spezifische Hilfe an"""
+        self.logger.log_message(f"\n--- Spezifische Hilfe für {status.name} ---", "INFO")
+
+        if service_id == "whisperx":
+            self.logger.log_message("WhisperX-spezifische Checks:", "INFO")
+            self.logger.log_message("• Prüfen Sie ob CUDA/GPU verfügbar ist", "INFO")
+            self.logger.log_message("• WhisperX Model könnte laden: docker logs whisperx-api", "INFO")
+            self.logger.log_message("• Port 8500 verfügbar: lsof -i :8500", "INFO")
+
+        elif service_id == "summarization":
+            self.logger.log_message("Summarization-spezifische Checks:", "INFO")
+            self.logger.log_message("• Service braucht Verbindung zu Ollama", "INFO")
+            self.logger.log_message("• Port 8501 verfügbar: lsof -i :8501", "INFO")
+            self.logger.log_message("• Überprüfen Sie Ollama-Verbindung im Service", "INFO")
+
+        elif service_id == "ollama":
+            self.logger.log_message("Ollama-spezifische Checks:", "INFO")
+            self.logger.log_message("• Model downloaden: docker exec ollama ollama pull llama3.1:8b", "INFO")
+            self.logger.log_message("• Verfügbarer Speicher für Models prüfen", "INFO")
+            self.logger.log_message("• Port 11434 verfügbar: lsof -i :11434", "INFO")
 
     def initialize_application(self):
         """Initialisiert die Anwendung."""

@@ -97,6 +97,31 @@ SAVE_FAILED_JOBS = get_env_setting("SAVE_FAILED_JOBS", True, bool)
 FAILED_JOBS_DIR = get_env_setting("FAILED_JOBS_DIR", "failed_transcriptions")
 
 # =============================================================================
+# SERVICE CONFIGURATION
+# =============================================================================
+
+# Summarization Service URLs
+SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
+
+# Ollama LLM Service
+OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
+
+# Service Health Check Settings
+HEALTH_CHECK_TIMEOUT = get_env_setting("HEALTH_CHECK_TIMEOUT", 10, int)
+SERVICE_TEST_ENABLED = get_env_setting("SERVICE_TEST_ENABLED", True, bool)
+
+# Automatisches Service-Monitoring (optional)
+SERVICE_AUTO_MONITORING = get_env_setting("SERVICE_AUTO_MONITORING", False, bool)
+SERVICE_MONITORING_INTERVAL = get_env_setting("SERVICE_MONITORING_INTERVAL", 60, int)
+
+# Docker Container Management
+DOCKER_CONTAINER_NAMES = {
+    "whisperx": get_env_setting("DOCKER_WHISPERX_NAME", "whisperx-api"),
+    "summarization": get_env_setting("DOCKER_SUMMARIZATION_NAME", "summarization-api"),
+    "ollama": get_env_setting("DOCKER_OLLAMA_NAME", "ollama")
+}
+
+# =============================================================================
 # ENVIRONMENT-SPECIFIC OVERRIDES
 # =============================================================================
 # Development Environment Anpassungen
@@ -104,7 +129,8 @@ if CURRENT_ENV == Environment.DEVELOPMENT:
     # Kürzere Timeouts für schnellere Entwicklung
     WHISPERX_TIMEOUT = get_env_setting("WHISPERX_TIMEOUT", 30, int)
     # Lokaler WhisperX-Server falls verfügbar
-    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://localhost:8500/transcribe")
+    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
+
 
 # Testing Environment Anpassungen
 elif CURRENT_ENV == Environment.TESTING:
@@ -112,3 +138,45 @@ elif CURRENT_ENV == Environment.TESTING:
     ENABLE_SPEAKER_DIARIZATION = False
     WHISPERX_TIMEOUT = 10
     SAVE_FAILED_JOBS = False
+
+
+# =============================================================================
+# SERVICE-SPECIFIC CONFIGURATIONS (ERWEITERTE EINSTELLUNGEN)
+# =============================================================================
+
+# Ollama Specific
+OLLAMA_MODEL_NAME = get_env_setting("OLLAMA_MODEL_NAME", "llama3.1:8b")
+OLLAMA_GENERATE_TIMEOUT = get_env_setting("OLLAMA_GENERATE_TIMEOUT", 30, int)
+
+# Summarization Specific
+SUMMARIZATION_TIMEOUT = get_env_setting("SUMMARIZATION_TIMEOUT", 60, int)
+SUMMARIZATION_DETAILED_ANALYSIS = get_env_setting("SUMMARIZATION_DETAILED_ANALYSIS", True, bool)
+
+# Service Health Check Retry Settings
+HEALTH_CHECK_RETRIES = get_env_setting("HEALTH_CHECK_RETRIES", 3, int)
+HEALTH_CHECK_RETRY_DELAY = get_env_setting("HEALTH_CHECK_RETRY_DELAY", 1, int)  # Sekunden zwischen Retries
+
+# Service Discovery (für unterschiedliche Umgebungen)
+if CURRENT_ENV == Environment.DEVELOPMENT:
+    # Für lokale Entwicklung - alle Services auf localhost
+    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
+    SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
+    OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
+elif CURRENT_ENV == Environment.PRODUCTION:
+    # Für Produktion - Remote Services
+    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
+    SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
+    OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
+
+# =============================================================================
+# OPTIONAL: SERVICE PRIORITY CONFIGURATION
+# =============================================================================
+
+# Definiert welche Services kritisch sind für die Anwendung
+CRITICAL_SERVICES = get_env_setting("CRITICAL_SERVICES", ["whisperx"], list)
+OPTIONAL_SERVICES = get_env_setting("OPTIONAL_SERVICES", ["summarization", "ollama"], list)
+
+# Service-spezifische Feature Flags
+ENABLE_WHISPERX_HEALTH_CHECK = get_env_setting("ENABLE_WHISPERX_HEALTH_CHECK", True, bool)
+ENABLE_SUMMARIZATION_HEALTH_CHECK = get_env_setting("ENABLE_SUMMARIZATION_HEALTH_CHECK", True, bool)
+ENABLE_OLLAMA_HEALTH_CHECK = get_env_setting("ENABLE_OLLAMA_HEALTH_CHECK", True, bool)
