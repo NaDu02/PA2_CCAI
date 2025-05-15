@@ -1,7 +1,21 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-venv/
-.env
-conversation.wav
+*.py[cod]
+*.egg-info/
+*.log
+
+# macOS
+.DS_Store
+
+# PyCharm
+.idea/
+
+# Virtuelle Umgebung
+.venv/
+
+# Temporäre Dateien
+*.wav
+*.mp3
+
+# Shell-Skripte (falls sensibel)
+start.sh
