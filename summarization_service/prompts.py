@@ -1,4 +1,4 @@
-# summarization_service/prompts.py - HOCHDETAILLIERTE VERSION
+# summarization_service/prompts.py
 """
 Hochdetaillierte Prompt-Templates für umfassende Gesprächszusammenfassungen
 mit fortgeschrittener Analyse-Tiefe und maximaler Informationsextraktion
