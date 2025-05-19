@@ -72,11 +72,22 @@ MAX_SPEAKERS = get_env_setting("MAX_SPEAKERS", 3, int)                        # 
 VAD_AGGRESSIVENESS = get_env_setting("VAD_AGGRESSIVENESS", 2, int)            # Voice Activity Detection (0-3)
 
 # =============================================================================
+# SERVER CONFIGURATION (zentrale IP-Definition)
+# =============================================================================
+# Zentrale Definition der Server-IP-Adresse - NUR HIER ÄNDERN
+SERVER_IP = get_env_setting("SERVER_IP", "141.72.16.203")
+
+# Port-Definitionen
+WHISPERX_PORT = get_env_setting("WHISPERX_PORT", "8500")
+SUMMARIZATION_PORT = get_env_setting("SUMMARIZATION_PORT", "8501")
+OLLAMA_PORT = get_env_setting("OLLAMA_PORT", "11434")
+
+# =============================================================================
 # WHISPERX API CONFIGURATION
 # =============================================================================
 # API-Einstellungen
 USE_WHISPERX_API = True  # Immer API-basiert in dieser Version
-WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
+WHISPERX_API_URL = f"http://{SERVER_IP}:{WHISPERX_PORT}/transcribe"
 WHISPERX_TIMEOUT = get_env_setting("WHISPERX_TIMEOUT", 120, int)               # Timeout in Sekunden
 WHISPERX_LANGUAGE = get_env_setting("WHISPERX_LANGUAGE", "de")                 # Sprache für Transkription
 WHISPERX_COMPUTE_TYPE = get_env_setting("WHISPERX_COMPUTE_TYPE", "float16")    # GPU-Compute-Type
@@ -101,10 +112,10 @@ FAILED_JOBS_DIR = get_env_setting("FAILED_JOBS_DIR", "failed_transcriptions")
 # =============================================================================
 
 # Summarization Service URLs
-SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
+SUMMARIZATION_SERVICE_URL = f"http://{SERVER_IP}:{SUMMARIZATION_PORT}"
 
 # Ollama LLM Service
-OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
+OLLAMA_SERVICE_URL = f"http://{SERVER_IP}:{OLLAMA_PORT}"
 
 # Service Health Check Settings
 HEALTH_CHECK_TIMEOUT = get_env_setting("HEALTH_CHECK_TIMEOUT", 10, int)
@@ -128,9 +139,12 @@ DOCKER_CONTAINER_NAMES = {
 if CURRENT_ENV == Environment.DEVELOPMENT:
     # Kürzere Timeouts für schnellere Entwicklung
     WHISPERX_TIMEOUT = get_env_setting("WHISPERX_TIMEOUT", 30, int)
-    # Lokaler WhisperX-Server falls verfügbar
-    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
-
+    # Dev-Server IP kann überschrieben werden
+    DEV_SERVER_IP = get_env_setting("DEV_SERVER_IP", SERVER_IP)
+    # URLs für Entwicklungsumgebung
+    WHISPERX_API_URL = f"http://{DEV_SERVER_IP}:{WHISPERX_PORT}/transcribe"
+    SUMMARIZATION_SERVICE_URL = f"http://{DEV_SERVER_IP}:{SUMMARIZATION_PORT}"
+    OLLAMA_SERVICE_URL = f"http://{DEV_SERVER_IP}:{OLLAMA_PORT}"
 
 # Testing Environment Anpassungen
 elif CURRENT_ENV == Environment.TESTING:
@@ -138,7 +152,6 @@ elif CURRENT_ENV == Environment.TESTING:
     ENABLE_SPEAKER_DIARIZATION = False
     WHISPERX_TIMEOUT = 10
     SAVE_FAILED_JOBS = False
-
 
 # =============================================================================
 # SERVICE-SPECIFIC CONFIGURATIONS (ERWEITERTE EINSTELLUNGEN)
@@ -156,17 +169,7 @@ SUMMARIZATION_DETAILED_ANALYSIS = get_env_setting("SUMMARIZATION_DETAILED_ANALYS
 HEALTH_CHECK_RETRIES = get_env_setting("HEALTH_CHECK_RETRIES", 3, int)
 HEALTH_CHECK_RETRY_DELAY = get_env_setting("HEALTH_CHECK_RETRY_DELAY", 1, int)  # Sekunden zwischen Retries
 
-# Service Discovery (für unterschiedliche Umgebungen)
-if CURRENT_ENV == Environment.DEVELOPMENT:
-    # Für lokale Entwicklung - alle Services auf localhost
-    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
-    SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
-    OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
-elif CURRENT_ENV == Environment.PRODUCTION:
-    # Für Produktion - Remote Services
-    WHISPERX_API_URL = get_env_setting("WHISPERX_API_URL", "http://141.72.16.242:8500/transcribe")
-    SUMMARIZATION_SERVICE_URL = get_env_setting("SUMMARIZATION_SERVICE_URL", "http://141.72.16.242:8501")
-    OLLAMA_SERVICE_URL = get_env_setting("OLLAMA_SERVICE_URL", "http://141.72.16.242:11434")
+# Service Discovery Konfiguration entfernt, da redundant mit zentraler SERVER_IP
 
 # =============================================================================
 # OPTIONAL: SERVICE PRIORITY CONFIGURATION

@@ -93,6 +93,13 @@ class ATAAudioApplication:
                                      state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
+        # Visuelle Statusmeldung für die Aufnahme
+        self.recording_status_label = tk.Label(button_frame, text="", font=('Segoe UI', 10, 'bold'))
+        self.recording_status_label.pack(side=tk.LEFT, padx=10)
+
+        self.recording_status_label = tk.Label(button_frame, text="", font=('Segoe UI', 10, 'bold'))
+        self.recording_status_label.pack(side=tk.LEFT, padx=10)
+
         self.devices_button = tk.Button(button_frame, text="Geräteauswahl", command=self.show_device_selection,
                                         width=15)
         self.devices_button.pack(side=tk.LEFT, padx=5)
@@ -101,7 +108,7 @@ class ATAAudioApplication:
         self.help_button.pack(side=tk.RIGHT, padx=5)
 
         # WhisperX API Test Button
-        self.api_test_button = tk.Button(button_frame, text="API Test", command=self.test_whisperx_api, width=10)
+        self.api_test_button = tk.Button(button_frame, text="Verbindung prüfen", command=self.test_whisperx_api, width=10)
         self.api_test_button.pack(side=tk.RIGHT, padx=5)
 
         # Diarization Toggle
@@ -469,6 +476,8 @@ class ATAAudioApplication:
             self.start_button.config(state=tk.DISABLED)
             self.stop_button.config(state=tk.NORMAL)
 
+            self.recording_status_label.config(text="Aufnahme läuft...", fg="red")
+
             # Status mit API-Info
             api_info = ""
             if hasattr(settings, 'USE_WHISPERX_API') and settings.USE_WHISPERX_API:
@@ -507,6 +516,7 @@ class ATAAudioApplication:
             # UI aktualisieren
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
+            self.recording_status_label.config(text="Aufnahme erfolgreich!", fg="green")
             self.status_label.config(text="Status: Bereit")
 
             # Normale Transkription (wenn Diarization deaktiviert)
@@ -548,11 +558,13 @@ class ATAAudioApplication:
             self.logger.log_message(f"Fehler beim Stoppen der Aufnahme: {e}", "ERROR")
             traceback.print_exc()
             messagebox.showerror("Fehler", f"Fehler beim Stoppen der Aufnahme: {e}")
+            self.recording_status_label.config(text="Fehler beim Stoppen!", fg="red")
 
             # Trotzdem Status zurücksetzen
             self.recording = False
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
+            self.recording_status_label.config(text="Fehler bei Aufnahme!", fg="red")
             self.status_label.config(text="Status: Fehler aufgetreten")
 
     def on_diarization_complete(self, result):
@@ -648,15 +660,16 @@ class ATAAudioApplication:
 
         return stats
 
-
     def reset_buttons(self):
         """Setzt die Button-Status zurück."""
         if self.recording:
             self.start_button.config(state=tk.DISABLED)
             self.stop_button.config(state=tk.NORMAL)
+            self.recording_status_label.config(text="Aufnahme läuft...", fg="red")
         else:
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
+            self.recording_status_label.config(text="")
         self.test_button.config(state=tk.NORMAL)
         self.devices_button.config(state=tk.NORMAL)
 
