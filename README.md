@@ -33,7 +33,7 @@ cd ata-audio-aufnahme
 **⚠️ WICHTIG: Ohne VPN-Verbindung zur DHBW können die Docker-Services nicht erreicht werden!**
 
 1. Verbinden Sie sich mit dem DHBW VPN
-2. Die Services laufen auf dem Server: `141.72.16.242`
+2. Die Services laufen auf dem Server: `141.72.16.203`
 
 ### 3. Automatische Installation und Start
 
@@ -92,7 +92,7 @@ Wenn BlackHole neu installiert wurde, muss es konfiguriert werden:
 | Summarization API    | Port 8501            | KI-Zusammenfassungen           | ✅ Läuft auf Server  |
 | Ollama LLM           | Port 11434           | LLM-Modelle für Zusammenfassung | ✅ Läuft auf Server  |
 
-**Hinweis**: Alle Docker-Services laufen bereits auf dem DHBW-Server (`141.72.16.242`) und müssen nicht lokal installiert werden.
+**Hinweis**: Alle Docker-Services laufen bereits auf dem DHBW-Server (`141.72.16.203`) und müssen nicht lokal installiert werden.
 
 ### Service Health Checks
 
@@ -140,8 +140,8 @@ Erstellen Sie eine `.env` Datei für individuelle Anpassungen:
 
 ```bash
 # API-Endpunkte (Standard: DHBW Server)
-ATA_WHISPERX_API_URL=http://141.72.16.242:8500/transcribe
-ATA_SUMMARIZATION_SERVICE_URL=http://141.72.16.242:8501
+ATA_WHISPERX_API_URL=http://141.72.16.203:8500/transcribe
+ATA_SUMMARIZATION_SERVICE_URL=http://141.72.16.203:8501
 
 # Audio-Qualität
 ATA_SAMPLE_RATE=44100
@@ -158,9 +158,9 @@ Die Standard-Konfiguration in `config/settings.py` ist bereits für den DHBW-Ser
 
 ```python
 # DHBW Server (Standard - keine Änderung nötig)
-WHISPERX_API_URL = "http://141.72.16.242:8500/transcribe"
-SUMMARIZATION_SERVICE_URL = "http://141.72.16.242:8501"
-OLLAMA_SERVICE_URL = "http://141.72.16.242:11434"
+WHISPERX_API_URL = "http://141.72.16.203:8500/transcribe"
+SUMMARIZATION_SERVICE_URL = "http://141.72.16.203:8501"
+OLLAMA_SERVICE_URL = "http://141.72.16.203:11434"
 ```
 
 ## 🚨 Fehlerbehebung
@@ -242,7 +242,7 @@ ata-audio-aufnahme/
 ## 🌐 Netzwerk-Topologie
 
 ```
-[macOS App] ←→ [DHBW VPN] ←→ [Server 141.72.16.242]
+[macOS App] ←→ [DHBW VPN] ←→ [Server 141.72.16.203]
                                 ├── WhisperX API (:8500)
                                 ├── Summarization (:8501)
                                 └── Ollama LLM (:11434)
