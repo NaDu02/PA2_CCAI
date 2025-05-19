@@ -299,7 +299,7 @@ Erweiterte Einstellungen in config/settings.py:
 
 ```python
 # API-Einstellungen
-WHISPERX_API_URL = "http://141.72.16.242:8500/transcribe"
+WHISPERX_API_URL = "http://141.72.16.203:8500/transcribe"
 WHISPERX_TIMEOUT = 120  # Timeout in Sekunden
 WHISPERX_ENABLE_DIARIZATION = True
 

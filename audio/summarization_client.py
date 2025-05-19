@@ -1,4 +1,4 @@
-# audio/summarization_client.py - VERBESSERTE VERSION MIT FIX
+# audio/summarization_client.py
 """
 Verbesserter Client für den Summarization Service mit Pre-Processing
 """
@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 class SummarizationClient:
     """Verbesserter Client für die Kommunikation mit dem Summarization Service"""
 
-    def __init__(self, service_url: str = "http://141.72.16.242:8501", logger=None):
-        self.service_url = service_url
+    def __init__(self, service_url: str = None, logger=None):
+        # Verwende die URL aus settings.py, wenn keine explizite URL übergeben wurde
+        self.service_url = service_url if service_url is not None else settings.SUMMARIZATION_SERVICE_URL
         self.logger = logger
         self._health_check_done = False
 
